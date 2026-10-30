@@ -4,7 +4,7 @@ Aplicación Android de Vigía Suite para conectar un NodeMCU ESP‑32S mediante 
 
 ## Descargar APK
 
-La versión instalable está disponible en [GitHub Releases](https://github.com/LuisNafate/vigia-suite-android/releases/latest).
+La versión instalable está disponible en [GitHub Releases](https://github.com/LuisNafate/vigia-suite-android/releases/tag/v0.7.0-beta).
 
 > La versión 0.7.0-beta se distribuye como APK de prueba. Android puede solicitar autorización para instalar aplicaciones desde el navegador o gestor de archivos.
 
