@@ -51,23 +51,42 @@ data class AnalysisRecord(
     val bleNearby: Int,
 )
 
+/** rssi, channel y auth son null cuando el sensor no los envió o no son un entero válido: nunca se inventan. */
 data class WifiNetwork(
     val ssid: String,
-    val rssi: Int,
-    val channel: Int,
-    val auth: Int,
+    val rssi: Int?,
+    val channel: Int?,
+    val auth: Int?,
     val bssid: String,
 )
 
 data class BleDevice(
     val name: String,
-    val rssi: Int,
+    val rssi: Int?,
     val address: String,
     val addressType: String,
     val connectable: Boolean,
     val manufacturerId: Int,
     val services: String,
 )
+
+/** Rangos válidos de los campos numéricos de VIGIA/2. Son los mismos que aplica el historial. */
+internal object VigiaFields {
+    val RSSI = -127..20
+    val CHANNEL = 1..196
+    val AUTH = 0..255
+}
+
+/**
+ * Entero del evento sólo si el campo existe, es numérico, entero y está en el rango. optInt() devolvía 0 para un
+ * campo ausente o inválido, y 0 significa «red abierta» y «señal máxima».
+ */
+internal fun JSONObject.intIn(name: String, range: IntRange): Int? {
+    val value = opt(name) as? Number ?: return null
+    val number = value.toDouble()
+    if (number % 1.0 != 0.0) return null
+    return number.toInt().takeIf { number in range.first.toDouble()..range.last.toDouble() }
+}
 
 class UsbSerialController(context: Context, private val history: HistoryRepository) : SerialInputOutputManager.Listener {
     private val appContext = context.applicationContext
@@ -315,9 +334,9 @@ class UsbSerialController(context: Context, private val history: HistoryReposito
                 "wifi_ap" -> {
                     val network = WifiNetwork(
                         ssid = event.optString("ssid"),
-                        rssi = event.optInt("rssi"),
-                        channel = event.optInt("channel"),
-                        auth = event.optInt("auth"),
+                        rssi = event.intIn("rssi", VigiaFields.RSSI),
+                        channel = event.intIn("channel", VigiaFields.CHANNEL),
+                        auth = event.intIn("auth", VigiaFields.AUTH),
                         bssid = event.optString("bssid"),
                     )
                     _state.value = _state.value.copy(wifiNetworks = _state.value.wifiNetworks + network)
@@ -337,7 +356,7 @@ class UsbSerialController(context: Context, private val history: HistoryReposito
                 "ble_device" -> {
                     val device = BleDevice(
                         name = event.optString("name"),
-                        rssi = event.optInt("rssi"),
+                        rssi = event.intIn("rssi", VigiaFields.RSSI),
                         address = event.optString("address"),
                         addressType = event.optString("address_type", "unknown"),
                         connectable = event.optBoolean("connectable"),
@@ -407,8 +426,8 @@ class UsbSerialController(context: Context, private val history: HistoryReposito
         // Fórmula existente sin cambios (ver nota de discrepancia con Web en el informe de esta etapa).
         val open = wifi.count { it.auth == 0 }
         val weak = wifi.count { it.auth == 1 || it.auth == 2 }
-        val strongOpen = wifi.count { it.auth == 0 && it.rssi >= -70 }
-        val stableNearby = ble.count { it.rssi >= -65 && !it.addressType.contains("random") && it.connectable }
+        val strongOpen = wifi.count { it.auth == 0 && it.rssi != null && it.rssi >= -70 }
+        val stableNearby = ble.count { it.rssi != null && it.rssi >= -65 && !it.addressType.contains("random") && it.connectable }
         var score = minOf(40, open * 3) + minOf(25, strongOpen * 5) + minOf(25, weak * 12) + minOf(10, stableNearby * 2)
         if (wifi.isNotEmpty() && open.toFloat() / wifi.size >= .25f) score += 10
         score = minOf(100, score)

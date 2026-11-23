@@ -12,6 +12,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -91,6 +92,57 @@ class SerialHistoryIntegrationTest {
         assertEquals(listOf("AA:AA:AA:AA:AA:01", "AA:AA:AA:AA:AA:02", "AA:AA:AA:AA:AA:03"), detail.wifi.map { it.bssid })
         assertEquals("", detail.wifi[2].ssid)
         assertEquals(76, detail.ble.single().manufacturerId)
+    }
+
+    @Test
+    fun missingOrInvalidFieldsAreUnknownAndNeverRaiseOpenNetworkAlerts() {
+        feed(
+            """{"type":"wifi_scan_started"}""",
+            """{"type":"wifi_ap","ssid":"SinCampos","bssid":"AA:AA:AA:AA:AA:10"}""",
+            """{"type":"wifi_ap","ssid":"Texto","rssi":"fuerte","channel":"6","auth":"0","bssid":"AA:AA:AA:AA:AA:11"}""",
+            """{"type":"wifi_ap","ssid":"Nulos","rssi":null,"channel":null,"auth":null,"bssid":"AA:AA:AA:AA:AA:12"}""",
+            """{"type":"wifi_ap","ssid":"Fuera","rssi":-200,"channel":0,"auth":-1,"bssid":"AA:AA:AA:AA:AA:13"}""",
+            """{"type":"wifi_ap","ssid":"Decimal","rssi":-50.5,"channel":6.5,"auth":0.5,"bssid":"AA:AA:AA:AA:AA:14"}""",
+            """{"type":"wifi_ap","ssid":"Booleano","rssi":true,"channel":false,"auth":false,"bssid":"AA:AA:AA:AA:AA:15"}""",
+            """{"type":"wifi_scan_finished","count":6,"truncated":false}""",
+            """{"type":"ble_scan_started","duration_s":5}""",
+            """{"type":"ble_device","name":"SinRssi","address":"11:22:33:44:55:66","address_type":"public","connectable":true}""",
+            """{"type":"ble_scan_finished","count":1,"observed":1,"truncated":false}""",
+        )
+        val state = controller.state.value
+        assertEquals(6, state.wifiNetworks.size)
+        state.wifiNetworks.forEach {
+            assertNull("auth de ${it.ssid}", it.auth)
+            assertNull("rssi de ${it.ssid}", it.rssi)
+            assertNull("canal de ${it.ssid}", it.channel)
+        }
+        assertNull(state.bleDevices.single().rssi)
+        assertEquals("No informada", authLabel(null))
+        assertEquals("RSSI no informado", dbmLabel(null))
+
+        val stored = awaitAssessments(1).single()
+        // Antes, optInt convertía cada campo ausente en 0: seis redes «abiertas y cercanas» y un BLE «cercano».
+        assertEquals(0, stored.score)
+        assertEquals("BAJO", stored.level)
+        assertEquals(0, stored.wifiOpen)
+        assertEquals(0, stored.bleNearby)
+        val detail = runBlocking { database.historyDao().detail(stored.id)!! }
+        assertTrue(detail.wifi.all { it.auth == null && it.rssi == null && it.channel == null })
+        assertNull(detail.ble.single().rssi)
+    }
+
+    @Test
+    fun validFirmwareValuesAreParsedExactlyAsBefore() {
+        feed(
+            """{"type":"wifi_scan_started"}""",
+            """{"type":"wifi_ap","ssid":"Abierta","rssi":-40,"channel":1,"auth":0,"bssid":"AA:AA:AA:AA:AA:20"}""",
+            """{"type":"wifi_ap","ssid":"Limite","rssi":-127,"channel":196,"auth":16,"bssid":"AA:AA:AA:AA:AA:21"}""",
+            """{"type":"wifi_scan_finished","count":2,"truncated":false}""",
+        )
+        val networks = controller.state.value.wifiNetworks
+        assertEquals(listOf(-40, -127), networks.map { it.rssi })
+        assertEquals(listOf(1, 196), networks.map { it.channel })
+        assertEquals(listOf(0, 16), networks.map { it.auth })
     }
 
     @Test

@@ -98,17 +98,17 @@ object HistoryLogic {
     private fun Int.inRangeOrNull(range: IntRange): Int? = if (this in range) this else null
 
     /**
-     * Observación Wi-Fi a partir del modelo existente. El parser actual usa optInt, que entrega 0 si falta
-     * un campo: un canal 0 no es válido y se guarda como desconocido.
+     * Observación Wi-Fi a partir del modelo existente. El parser ya deja en null un campo ausente o inválido; el rango
+     * se vuelve a comprobar aquí para que el historial nunca guarde un canal 0 ni un modo fuera de wifi_auth_mode_t.
      */
     fun wifiObservation(assessmentId: String, seq: Int, network: WifiNetwork) = WifiObservationEntity(
         assessmentId = assessmentId,
         seq = seq,
         ssid = network.ssid,
         bssid = normalizeMac(network.bssid),
-        channel = network.channel.inRangeOrNull(1..196),
-        rssi = network.rssi.inRangeOrNull(-127..20),
-        auth = network.auth.inRangeOrNull(0..255),
+        channel = network.channel?.inRangeOrNull(VigiaFields.CHANNEL),
+        rssi = network.rssi?.inRangeOrNull(VigiaFields.RSSI),
+        auth = network.auth?.inRangeOrNull(VigiaFields.AUTH),
     )
 
     fun bleObservation(assessmentId: String, seq: Int, device: BleDevice) = BleObservationEntity(
@@ -117,7 +117,7 @@ object HistoryLogic {
         name = device.name,
         address = normalizeMac(device.address),
         addressType = if (device.addressType in BLE_ADDRESS_TYPES) device.addressType else "unknown",
-        rssi = device.rssi.inRangeOrNull(-127..20),
+        rssi = device.rssi?.inRangeOrNull(VigiaFields.RSSI),
         connectable = device.connectable,
         manufacturerId = device.manufacturerId.inRangeOrNull(0..0xFFFF),
         services = device.services.trim().ifBlank { null },

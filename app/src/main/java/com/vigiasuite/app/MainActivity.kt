@@ -220,8 +220,8 @@ private fun analyze(state: SerialUiState): MobileAnalysis {
     val ble = state.bleDevices
     val open = wifi.count { it.auth == 0 }
     val weak = wifi.count { it.auth == 1 || it.auth == 2 }
-    val strongOpen = wifi.count { it.auth == 0 && it.rssi >= -70 }
-    val stableNearby = ble.count { it.rssi >= -65 && !it.addressType.contains("random") && it.connectable }
+    val strongOpen = wifi.count { it.auth == 0 && it.rssi != null && it.rssi >= -70 }
+    val stableNearby = ble.count { it.rssi != null && it.rssi >= -65 && !it.addressType.contains("random") && it.connectable }
     var score = minOf(40, open * 3) + minOf(25, strongOpen * 5) + minOf(25, weak * 12) + minOf(10, stableNearby * 2)
     if (wifi.isNotEmpty() && open.toFloat() / wifi.size >= .25f) score += 10
     score = minOf(100, score)
@@ -242,13 +242,13 @@ private fun reportText(state: SerialUiState): String {
         appendLine("Fecha: ${DateFormat.getDateTimeInstance().format(Date())}")
         appendLine("Riesgo observado: ${result.score}/100 · ${result.level}")
         appendLine("Wi-Fi: ${state.wifiNetworks.size} redes; ${state.wifiNetworks.count { it.auth == 0 }} abiertas")
-        appendLine("Bluetooth LE: ${state.bleDevices.size} dispositivos; ${state.bleDevices.count { it.rssi >= -65 }} cercanos")
+        appendLine("Bluetooth LE: ${state.bleDevices.size} dispositivos; ${state.bleDevices.count { it.rssi != null && it.rssi >= -65 }} cercanos")
         appendLine("\nRecomendaciones:")
         result.recommendations.forEach { appendLine("- $it") }
         appendLine("\nInventario Wi-Fi:")
-        state.wifiNetworks.sortedByDescending { it.rssi }.forEach { appendLine("- ${it.ssid.ifBlank { "[oculta]" }} | ${it.rssi} dBm | canal ${it.channel} | ${authLabel(it.auth)} | ${it.bssid}") }
+        state.wifiNetworks.sortedByDescending { it.rssi }.forEach { appendLine("- ${it.ssid.ifBlank { "[oculta]" }} | ${dbmLabel(it.rssi)} | canal ${it.channel ?: "no informado"} | ${authLabel(it.auth)} | ${it.bssid}") }
         appendLine("\nInventario Bluetooth:")
-        state.bleDevices.sortedByDescending { it.rssi }.forEach { appendLine("- ${it.name.ifBlank { "[sin nombre]" }} | ${it.rssi} dBm | ${it.address} | ${bleAddressLabel(it.addressType)} | ${if (it.connectable) "conectable" else "solo anuncio"}") }
+        state.bleDevices.sortedByDescending { it.rssi }.forEach { appendLine("- ${it.name.ifBlank { "[sin nombre]" }} | ${dbmLabel(it.rssi)} | ${it.address} | ${bleAddressLabel(it.addressType)} | ${if (it.connectable) "conectable" else "solo anuncio"}") }
         appendLine("\nObservación pasiva local: un hallazgo no demuestra por sí mismo una vulnerabilidad explotable.")
     }
 }
@@ -400,8 +400,8 @@ private fun WifiResultsCard(networks: List<WifiNetwork>) {
             networks.sortedByDescending { it.rssi }.take(24).forEach { network ->
                 ResultRow(
                     title = network.ssid.ifBlank { "[oculta]" },
-                    detail = "Canal ${network.channel} · ${authLabel(network.auth)}",
-                    signal = "${network.rssi} dBm",
+                    detail = "Canal ${network.channel ?: "no informado"} · ${authLabel(network.auth)}",
+                    signal = dbmLabel(network.rssi),
                 )
             }
         }
@@ -418,7 +418,7 @@ private fun BleResultsCard(devices: List<BleDevice>) {
                 ResultRow(
                     title = device.name.ifBlank { "[sin nombre]" },
                     detail = "${device.address} · ${bleAddressLabel(device.addressType)} · ${manufacturerLabel(device.manufacturerId)} · ${if (device.connectable) "conectable" else "solo anuncio"}",
-                    signal = "${device.rssi} dBm · ${proximityLabel(device.rssi)}",
+                    signal = "${dbmLabel(device.rssi)} · ${proximityLabel(device.rssi)}",
                 )
             }
         }
@@ -455,7 +455,9 @@ internal fun ResultRow(title: String, detail: String, signal: String) {
     }
 }
 
-internal fun authLabel(value: Int): String = when (value) {
+/** Etiqueta de wifi_auth_mode_t. null = el sensor no informó un modo válido: no se presenta como red abierta. */
+internal fun authLabel(value: Int?): String = when (value) {
+    null -> "No informada"
     0 -> "Abierta"
     1 -> "WEP"
     2 -> "WPA-PSK"
@@ -468,7 +470,10 @@ internal fun authLabel(value: Int): String = when (value) {
     else -> "Modo $value"
 }
 
-internal fun proximityLabel(rssi: Int): String = when {
+internal fun dbmLabel(rssi: Int?): String = rssi?.let { "$it dBm" } ?: "RSSI no informado"
+
+internal fun proximityLabel(rssi: Int?): String = when {
+    rssi == null -> "proximidad desconocida"
     rssi >= -55 -> "muy cerca"
     rssi >= -65 -> "cerca"
     rssi >= -80 -> "media"
