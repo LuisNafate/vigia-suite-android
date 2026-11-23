@@ -72,9 +72,9 @@ internal fun NvdSection(controller: NvdController) {
 
     NvdCard {
         Text("Vulnerabilidades documentadas", fontWeight = FontWeight.Bold)
-        Text("Consulta CVE publicadas por NVD para un producto y su versión. No son hallazgos del sensor: Vigía no las asocia con redes ni dispositivos observados, porque un SSID, una MAC o un tipo de autenticación no identifican el producto ni su firmware.", color = Muted, fontSize = 12.sp)
+        Text("CVE publicadas por NVD. Son vulnerabilidades documentadas, no hallazgos del sensor.", color = Muted, fontSize = 12.sp)
         Text(Nvd.NOTICE, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-        Text("Cada consulta envía a services.nvd.nist.gov sólo lo que escribes o eliges, nunca el inventario Wi-Fi o Bluetooth. Las respuestas se guardan en este teléfono con la fecha de consulta.", color = Muted, fontSize = 11.sp)
+        Text("Sólo se envía lo que escribes o eliges, nunca el inventario del sensor.", color = Muted, fontSize = 11.sp)
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             listOf(NvdMode.CVE to "CVE", NvdMode.KEYWORD to "Palabras clave", NvdMode.CPE to "Producto").forEach { (mode, label) ->
                 FilterChip(selected = state.mode == mode, onClick = { controller.setMode(mode) }, label = { Text(label, fontSize = 11.sp) })
@@ -93,7 +93,7 @@ internal fun NvdSection(controller: NvdController) {
         }
         Text(state.status, fontSize = 12.sp, color = if (state.error) NvdDanger else Color(0xFF191919))
         nvdFetchedText(state)?.let { Text(it, color = Muted, fontSize = 11.sp) }
-        Text("NVD admite 5 consultas cada 30 s sin clave: Vigía espera 6 s entre consultas y reutiliza las guardadas durante 24 h.", color = Muted, fontSize = 10.sp)
+        Text("Máximo 5 consultas cada 30 s; las guardadas duran 24 h.", color = Muted, fontSize = 10.sp)
     }
 
     if (state.showCpes) {
