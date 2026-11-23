@@ -84,12 +84,12 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val Night = Color(0xFFE9E9E7)
-private val Panel = Color(0xFFF9F9F7)
-private val PanelSoft = Color(0xFFE1E1DE)
-private val Cyan = Color(0xFF202020)
-private val Amber = Color(0xFF75613A)
-private val Muted = Color(0xFF6D6D6D)
+internal val Night = Color(0xFFE9E9E7)
+internal val Panel = Color(0xFFF9F9F7)
+internal val PanelSoft = Color(0xFFE1E1DE)
+internal val Cyan = Color(0xFF202020)
+internal val Amber = Color(0xFF75613A)
+internal val Muted = Color(0xFF6D6D6D)
 
 @Composable
 private fun VigiaTheme(content: @Composable () -> Unit) {
@@ -409,7 +409,7 @@ private fun BleResultsCard(devices: List<BleDevice>) {
 }
 
 @Composable
-private fun ResultCard(title: String, count: Int, content: @Composable () -> Unit) {
+internal fun ResultCard(title: String, count: Int, content: @Composable () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -423,12 +423,12 @@ private fun ResultCard(title: String, count: Int, content: @Composable () -> Uni
 }
 
 @Composable
-private fun EmptyResult(message: String) {
+internal fun EmptyResult(message: String) {
     Text(message, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 10.dp))
 }
 
 @Composable
-private fun ResultRow(title: String, detail: String, signal: String) {
+internal fun ResultRow(title: String, detail: String, signal: String) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
@@ -438,7 +438,7 @@ private fun ResultRow(title: String, detail: String, signal: String) {
     }
 }
 
-private fun authLabel(value: Int): String = when (value) {
+internal fun authLabel(value: Int): String = when (value) {
     0 -> "Abierta"
     1 -> "WEP"
     2 -> "WPA-PSK"
@@ -451,14 +451,14 @@ private fun authLabel(value: Int): String = when (value) {
     else -> "Modo $value"
 }
 
-private fun proximityLabel(rssi: Int): String = when {
+internal fun proximityLabel(rssi: Int): String = when {
     rssi >= -55 -> "muy cerca"
     rssi >= -65 -> "cerca"
     rssi >= -80 -> "media"
     else -> "lejana"
 }
 
-private fun bleAddressLabel(value: String): String = when (value) {
+internal fun bleAddressLabel(value: String): String = when (value) {
     "public" -> "pública"
     "random" -> "aleatoria"
     "public_identity" -> "identidad pública"
@@ -466,7 +466,7 @@ private fun bleAddressLabel(value: String): String = when (value) {
     else -> "dirección no informada"
 }
 
-private fun manufacturerLabel(value: Int): String = when (value) {
+internal fun manufacturerLabel(value: Int): String = when (value) {
     6 -> "Microsoft"
     76 -> "Apple"
     117 -> "Samsung"
