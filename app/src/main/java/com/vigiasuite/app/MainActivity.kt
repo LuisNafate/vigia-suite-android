@@ -69,16 +69,18 @@ import java.util.Date
 class MainActivity : ComponentActivity() {
     private lateinit var serialController: UsbSerialController
     private lateinit var history: HistoryRepository
+    private lateinit var nvd: NvdController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         history = HistoryRepository.create(this)
         history.start()
+        nvd = NvdController.create(this)
         serialController = UsbSerialController(this, history)
         serialController.register()
         setContent {
             VigiaTheme {
-                VigiaApp(serialController, history)
+                VigiaApp(serialController, history, nvd)
             }
         }
     }
@@ -114,7 +116,7 @@ private fun VigiaTheme(content: @Composable () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun VigiaApp(controller: UsbSerialController, history: HistoryRepository) {
+private fun VigiaApp(controller: UsbSerialController, history: HistoryRepository, nvd: NvdController) {
     val state by controller.state.collectAsState()
     val assessments by history.assessments.collectAsState()
     var selectedSection by remember { mutableIntStateOf(0) }
@@ -124,6 +126,7 @@ private fun VigiaApp(controller: UsbSerialController, history: HistoryRepository
         Triple("Wi-Fi", Icons.Default.Router, "Redes detectadas"),
         Triple("Bluetooth", Icons.Default.Bluetooth, "Dispositivos cercanos"),
         Triple("Historial", Icons.Default.History, "Evaluaciones guardadas"),
+        Triple("NVD", Icons.Default.Security, "Vulnerabilidades documentadas"),
         Triple("Sistema", Icons.Default.Settings, "Diagnóstico técnico"),
     )
 
@@ -166,6 +169,7 @@ private fun VigiaApp(controller: UsbSerialController, history: HistoryRepository
                 2 -> { SectionAction("Redes Wi-Fi", "Revisa redes abiertas, protección y canales.", "Actualizar redes", state.status == ConnectionStatus.CONNECTED) { controller.send("SCAN_WIFI") }; WifiResultsCard(state.wifiNetworks) }
                 3 -> { SectionAction("Dispositivos Bluetooth", "Observa cercanía y privacidad sin conectarte a terceros.", "Actualizar dispositivos", state.status == ConnectionStatus.CONNECTED) { controller.send("SCAN_BLE") }; BleResultsCard(state.bleDevices) }
                 4 -> HistorySection(history, assessments)
+                5 -> NvdSection(nvd)
                 else -> { Text("HERRAMIENTAS DEL SENSOR", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold); ModuleGrid(state.status == ConnectionStatus.CONNECTED, controller); ConsoleCard(state.console) }
             }
             Spacer(Modifier.height(24.dp))
