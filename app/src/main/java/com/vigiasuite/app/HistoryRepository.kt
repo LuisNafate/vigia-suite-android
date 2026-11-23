@@ -38,7 +38,8 @@ class HistoryRepository(
     init {
         // Primer inicio con la fórmula actual: lo guardado antes conserva su puntuación y la comparación lo advierte.
         // Se registra al crear el repositorio, antes de que pueda guardarse ninguna evaluación nueva.
-        if (!preferences.contains(SCORING_REVISION_KEY)) preferences.edit().putLong(SCORING_REVISION_KEY, clock()).commit()
+        // apply() actualiza la copia en memoria al instante: las lecturas posteriores ya ven el valor.
+        if (!preferences.contains(SCORING_REVISION_KEY)) preferences.edit().putLong(SCORING_REVISION_KEY, clock()).apply()
     }
 
     /** Desde cuándo las evaluaciones de este teléfono usan RiskScore.FORMULA_VERSION. */
