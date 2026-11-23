@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Cable
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Router
@@ -50,6 +51,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -66,14 +68,17 @@ import java.util.Date
 
 class MainActivity : ComponentActivity() {
     private lateinit var serialController: UsbSerialController
+    private lateinit var history: HistoryRepository
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        serialController = UsbSerialController(this)
+        history = HistoryRepository.create(this)
+        history.start()
+        serialController = UsbSerialController(this, history)
         serialController.register()
         setContent {
             VigiaTheme {
-                VigiaApp(serialController)
+                VigiaApp(serialController, history)
             }
         }
     }
@@ -109,14 +114,16 @@ private fun VigiaTheme(content: @Composable () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun VigiaApp(controller: UsbSerialController) {
+private fun VigiaApp(controller: UsbSerialController, history: HistoryRepository) {
     val state by controller.state.collectAsState()
+    val assessments by history.assessments.collectAsState()
     var selectedSection by remember { mutableIntStateOf(0) }
     val sections = listOf(
         Triple("Inicio", Icons.Default.Home, "Conectar y evaluar"),
         Triple("Resumen", Icons.Default.Assessment, "Riesgos y acciones"),
         Triple("Wi-Fi", Icons.Default.Router, "Redes detectadas"),
         Triple("Bluetooth", Icons.Default.Bluetooth, "Dispositivos cercanos"),
+        Triple("Historial", Icons.Default.History, "Evaluaciones guardadas"),
         Triple("Sistema", Icons.Default.Settings, "Diagnóstico técnico"),
     )
 
@@ -155,9 +162,10 @@ private fun VigiaApp(controller: UsbSerialController) {
         ) {
             when (selectedSection) {
                 0 -> HomeSection(state, controller) { selectedSection = 1 }
-                1 -> { AnalysisCard(state, controller); HistoryCard(state.history, controller) }
+                1 -> { AnalysisCard(state, controller); HistoryCard(assessments, history) { selectedSection = 4 } }
                 2 -> { SectionAction("Redes Wi-Fi", "Revisa redes abiertas, protección y canales.", "Actualizar redes", state.status == ConnectionStatus.CONNECTED) { controller.send("SCAN_WIFI") }; WifiResultsCard(state.wifiNetworks) }
                 3 -> { SectionAction("Dispositivos Bluetooth", "Observa cercanía y privacidad sin conectarte a terceros.", "Actualizar dispositivos", state.status == ConnectionStatus.CONNECTED) { controller.send("SCAN_BLE") }; BleResultsCard(state.bleDevices) }
+                4 -> HistorySection(history, assessments)
                 else -> { Text("HERRAMIENTAS DEL SENSOR", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold); ModuleGrid(state.status == ConnectionStatus.CONNECTED, controller); ConsoleCard(state.console) }
             }
             Spacer(Modifier.height(24.dp))
@@ -273,23 +281,32 @@ private fun AnalysisCard(state: SerialUiState, controller: UsbSerialController) 
 }
 
 @Composable
-private fun HistoryCard(history: List<AnalysisRecord>, controller: UsbSerialController) {
+private fun HistoryCard(history: List<AssessmentEntity>, repository: HistoryRepository, openHistory: () -> Unit) {
+    var confirmClear by remember { mutableStateOf(false) }
     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column { Text("Registro local", fontWeight = FontWeight.Bold); Text("Últimas ${history.size} sesiones", color = Muted, fontSize = 11.sp) }
-                Button(enabled = history.isNotEmpty(), onClick = controller::clearHistory, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = Cyan)) { Text("Limpiar") }
+                Column { Text("Registro local", fontWeight = FontWeight.Bold); Text("${history.size} evaluaciones guardadas", color = Muted, fontSize = 11.sp) }
+                Button(enabled = history.isNotEmpty(), onClick = { confirmClear = true }, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = Cyan)) { Text("Limpiar") }
             }
-            if (history.isEmpty()) EmptyResult("Los análisis Bluetooth completados se guardarán aquí.")
+            if (history.isEmpty()) EmptyResult("Las evaluaciones completadas se guardarán aquí.")
             history.take(5).forEach { item ->
                 HorizontalDivider(color = PanelSoft)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column { Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(item.createdAt)), fontSize = 12.sp); Text("${item.wifiTotal} Wi-Fi · ${item.bleTotal} BLE", color = Muted, fontSize = 11.sp) }
+                    Column { Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(item.createdAt)), fontSize = 12.sp); Text("${item.wifiCount ?: "—"} Wi-Fi · ${item.bleCount ?: "—"} BLE", color = Muted, fontSize = 11.sp) }
                     Text("${item.score}/100 · ${item.level}", color = Cyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
+            if (history.isNotEmpty()) Button(onClick = openHistory, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = Cyan)) { Text("Ver historial completo") }
         }
     }
+    if (confirmClear) ConfirmDialog(
+        title = "Eliminar todo el historial",
+        text = "Se eliminarán las ${history.size} evaluaciones guardadas en este teléfono, con todas sus observaciones. No se puede deshacer.",
+        confirm = "Eliminar todo",
+        onConfirm = { confirmClear = false; repository.launch { deleteAll() } },
+        onDismiss = { confirmClear = false },
+    )
 }
 
 @Composable
