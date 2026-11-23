@@ -50,9 +50,9 @@ El firmware y la aplicación web para preparar el sensor están en [Vigía Suite
 ## Funciones
 
 - Conexión USB serial a 115200 baudios.
-- Inventario Wi‑Fi 2.4 GHz y Bluetooth Low Energy.
-- Puntuación contextual y recomendaciones defensivas.
-- Historial local en Room: cada evaluación con sus redes Wi‑Fi y dispositivos BLE, detalle, comparación entre dos evaluaciones, borrado individual o total y política de conservación.
+- Evaluación guiada que solicita la identidad del sensor (`INFO`) y después el inventario Wi‑Fi 2.4 GHz y Bluetooth Low Energy.
+- Puntuación contextual y recomendaciones defensivas, con la misma fórmula que la versión web (incluida la regla de congestión: +5 si un canal concentra 12 o más redes). Los datos que el sensor no informa, o que llegan inválidos, se muestran como «No informada» y no cuentan como redes abiertas ni cercanas.
+- Historial local en Room: cada evaluación con sus redes Wi‑Fi y dispositivos BLE, detalle, comparación entre dos evaluaciones, borrado individual o total y política de conservación. Las evaluaciones guardadas conservan su puntuación original; al compararlas con otras puntuadas con la fórmula actual, la app advierte si la regla de congestión habría cambiado el resultado.
 - Informe para guardar o compartir desde Android.
 - Procesamiento local sin envío de resultados a Internet.
 
