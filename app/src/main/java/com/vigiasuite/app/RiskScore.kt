@@ -11,10 +11,16 @@ package com.vigiasuite.app
  * RSSI desconocido no es cercano.
  */
 object RiskScore {
-    /** Desde esta versión Android suma la regla de congestión de Web. Las evaluaciones anteriores conservan su puntuación. */
-    const val FORMULA_VERSION = 2
-    /** Primera versión con la regla de congestión. Se guarda en AssessmentEntity.scoreFormula. */
+    /**
+     * Versión que se guarda en AssessmentEntity.scoreFormula con cada evaluación nueva (la misma que usa la versión Web).
+     * 2: Android suma la regla de congestión de Web. 3: clasificación BLE por subtipo de dirección (BleAddress).
+     * Las evaluaciones anteriores conservan su puntuación y su versión (null = no registrada).
+     */
+    const val FORMULA_VERSION = 3
+    /** Primera versión con la regla de congestión. */
     const val CONGESTION_RULE_SINCE = 2
+    /** Primera versión con la clasificación BLE de BleAddress: sólo pública o aleatoria estática es estable. */
+    const val BLE_RULE_SINCE = 3
     const val CONGESTED_CHANNEL_NETWORKS = 12
 
     data class Result(
@@ -36,7 +42,8 @@ object RiskScore {
         val open = wifi.count { it.auth == 0 }
         val weak = wifi.count { it.auth == 1 || it.auth == 2 }
         val strongOpen = wifi.count { it.auth == 0 && it.rssi != null && it.rssi >= -70 }
-        val stableNearby = ble.count { it.rssi != null && it.rssi >= -65 && !it.addressType.contains("random") && it.connectable }
+        // Versión 3: cercano, conectable y con identificador estable; privada o no determinada no suma.
+        val stableNearby = ble.count { it.rssi != null && it.rssi >= -65 && it.connectable && BleAddress.isStable(BleAddress.classify(it.addressType, it.address)) }
         val busiest = busiestChannel(wifi.map { it.channel })
         var score = minOf(40, open * 3) + minOf(25, strongOpen * 5) + minOf(25, weak * 12) + minOf(10, stableNearby * 2)
         if (wifi.isNotEmpty() && open.toFloat() / wifi.size >= .25f) score += 10

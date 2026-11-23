@@ -226,7 +226,10 @@ internal fun analyze(state: SerialUiState): MobileAnalysis {
     val recommendations = buildList {
         if (weak > 0) add("Migra $weak red(es) con WEP/WPA a WPA2-AES o WPA3.")
         if (open > 0) add("Valida $open red(es) abiertas y separa invitados de equipos internos.")
-        if (stableNearby > 0) add("Revisa privacidad BLE en $stableNearby dispositivo(s) cercano(s) con identificador estable.")
+        if (stableNearby > 0) add("Revisa privacidad BLE en $stableNearby dispositivo(s) cercano(s) con dirección pública o aleatoria estática: puede repetirse entre sesiones. En equipos propios, activa direcciones privadas resolubles.")
+        val legacyEnterprise = wifi.count { it.auth == 16 }
+        // Aviso informativo sin puntos: el sensor no informa el cifrado, así que no se afirma TKIP ni una vulnerabilidad.
+        if (legacyEnterprise > 0) add("Revisa $legacyEnterprise red(es) WPA-Enterprise heredado: puede admitir cifrado heredado, pero Vigía no conoce su cifrado y no la puntúa como débil.")
         if (wifi.isNotEmpty()) add("Repite la medición en otro horario y compara canales, BSSID y seguridad.")
         if (isEmpty() && ble.isNotEmpty()) add("Mantén firmware actualizado y desactiva emparejamiento BLE cuando no se use.")
     }
@@ -246,7 +249,7 @@ private fun reportText(state: SerialUiState): String {
         appendLine("\nInventario Wi-Fi:")
         state.wifiNetworks.sortedByDescending { it.rssi }.forEach { appendLine("- ${it.ssid.ifBlank { "[oculta]" }} | ${dbmLabel(it.rssi)} | canal ${it.channel ?: "no informado"} | ${authLabel(it.auth)} | ${it.bssid}") }
         appendLine("\nInventario Bluetooth:")
-        state.bleDevices.sortedByDescending { it.rssi }.forEach { appendLine("- ${it.name.ifBlank { "[sin nombre]" }} | ${dbmLabel(it.rssi)} | ${it.address} | ${bleAddressLabel(it.addressType)} | ${if (it.connectable) "conectable" else "solo anuncio"}") }
+        state.bleDevices.sortedByDescending { it.rssi }.forEach { appendLine("- ${it.name.ifBlank { "[sin nombre]" }} | ${dbmLabel(it.rssi)} | ${it.address} | ${bleAddressLabel(it.addressType, it.address)} | ${if (it.connectable) "conectable" else "solo anuncio"}") }
         appendLine("\nObservación pasiva local: un hallazgo no demuestra por sí mismo una vulnerabilidad explotable.")
     }
 }
@@ -415,7 +418,7 @@ private fun BleResultsCard(devices: List<BleDevice>) {
             devices.sortedByDescending { it.rssi }.take(24).forEach { device ->
                 ResultRow(
                     title = device.name.ifBlank { "[sin nombre]" },
-                    detail = "${device.address} · ${bleAddressLabel(device.addressType)} · ${manufacturerLabel(device.manufacturerId)} · ${if (device.connectable) "conectable" else "solo anuncio"}",
+                    detail = "${device.address} · ${bleAddressLabel(device.addressType, device.address)} · ${manufacturerLabel(device.manufacturerId)} · ${if (device.connectable) "conectable" else "solo anuncio"}",
                     signal = "${dbmLabel(device.rssi)} · ${proximityLabel(device.rssi)}",
                 )
             }
@@ -487,13 +490,8 @@ internal fun proximityLabel(rssi: Int?): String = when {
     else -> "lejana"
 }
 
-internal fun bleAddressLabel(value: String): String = when (value) {
-    "public" -> "pública"
-    "random" -> "aleatoria"
-    "public_identity" -> "identidad pública"
-    "random_identity" -> "identidad aleatoria"
-    else -> "dirección no informada"
-}
+/** Etiqueta de privacidad a partir del tipo y de la dirección (BleAddress, fórmula versión 3). */
+internal fun bleAddressLabel(type: String?, address: String?): String = BleAddress.classify(type, address).label
 
 internal fun manufacturerLabel(value: Int): String = when (value) {
     6 -> "Microsoft"

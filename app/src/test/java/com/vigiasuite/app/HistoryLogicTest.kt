@@ -125,7 +125,7 @@ class HistoryLogicTest {
     fun comparisonWarnsFromTheStoredFormulaVersionNotFromDates() {
         val congested = (1..12).map { ap("AA:AA:AA:AA:AA:%02X".format(it), channel = 6) }
         val spread = (1..12).map { ap("AA:AA:AA:AA:AA:%02X".format(it), channel = it) }
-        val warning = "fórmula actual de Android"
+        val warning = "regla de congestión de Android"
         fun warns(first: AssessmentDetail, second: AssessmentDetail) = HistoryLogic.compare(first, second).warnings.any { warning in it }
         val unrecorded = { id: String, at: Long, wifi: List<WifiNetwork> -> detail(id, at, wifi, scoreFormula = null) }
 

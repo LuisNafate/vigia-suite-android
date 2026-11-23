@@ -92,7 +92,7 @@ class HistoryMigrationTest {
         dao.insertDetail(now)
         assertEquals(RiskScore.FORMULA_VERSION, dao.assessments(listOf("v2-live")).single().scoreFormula)
         val warnings = HistoryLogic.compare(detail, dao.detail("v2-live")!!).warnings
-        assertTrue(warnings.any { "fórmula actual de Android" in it })
-        assertFalse(HistoryLogic.compare(dao.detail("v2-live")!!, dao.detail("v2-live")!!).warnings.any { "fórmula actual de Android" in it })
+        assertTrue(warnings.any { "regla de congestión de Android" in it })
+        assertFalse(HistoryLogic.compare(dao.detail("v2-live")!!, dao.detail("v2-live")!!).warnings.any { "regla de congestión de Android" in it })
     }
 }

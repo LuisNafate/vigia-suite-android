@@ -192,10 +192,10 @@ class HistoryRepositoryTest {
         prefs.edit().clear().commit()
         now -= 10L * 365 * 24 * 60 * 60 * 1000 // además, el reloj del teléfono retrocede diez años
         val reopened = HistoryRepository(context, database, scope) { now }
-        assertFalse(reopened.compare(first, second)!!.warnings.any { "fórmula actual de Android" in it })
+        assertFalse(reopened.compare(first, second)!!.warnings.any { "regla de congestión de Android" in it })
         val third = reopened.save(HistoryStatus.COMPLETE, SensorIdentity(), 5, congested, emptyList(), false, false, false)
         assertFalse("una evaluación nueva con fecha anterior no se confunde con la fórmula previa",
-            reopened.compare(first, third)!!.warnings.any { "fórmula actual de Android" in it })
+            reopened.compare(first, third)!!.warnings.any { "regla de congestión de Android" in it })
         assertEquals(listOf(5, 5, 5), listOf(first, second, third).map { database.historyDao().assessments(listOf(it)).single().score })
     }
 }

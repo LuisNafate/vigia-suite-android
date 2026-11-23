@@ -58,6 +58,8 @@ internal fun authChangeDetail(change: AuthChange) = change.bssid + when (change.
     else -> ""
 }
 internal fun authChangeValue(change: AuthChange) = "${authText(change.before.auth)} → ${authText(change.after.auth)}"
+/** Versión de fórmula guardada; una evaluación anterior sin versión se muestra como no registrada, nunca se completa. */
+internal fun formulaLabel(version: Int?) = version?.let { "Versión $it" } ?: "No registrada"
 private fun rssiText(rssi: Int?) = rssi?.let { "$it dBm" } ?: "—"
 private fun orUnknown(value: Any?) = value?.toString() ?: "No disponible"
 
@@ -173,6 +175,7 @@ private fun DetailCard(repository: HistoryRepository, id: String, onClose: () ->
             fun truncated(value: Boolean?) = when (value) { null -> "No informado"; true -> "Sí, límite del sensor"; false -> "No" }
             Fact("Fecha", dateLabel(item.createdAt))
             Fact("Puntuación", "${item.score}/100 · ${item.level}")
+            Fact("Fórmula", formulaLabel(item.scoreFormula))
             Fact("Estado", statusLabel(item.status))
             Fact("Observaciones", "${item.wifiCount ?: "—"} Wi-Fi · ${item.bleCount ?: "—"} BLE")
             Fact("Wi-Fi truncado", truncated(item.wifiTruncated))
@@ -205,7 +208,7 @@ private fun DetailCard(repository: HistoryRepository, id: String, onClose: () ->
             val connection = when (it.connectable) { null -> "conexión no informada"; true -> "conectable"; false -> "solo anuncio" }
             ResultRow(
                 it.name?.ifBlank { null } ?: "[sin nombre]",
-                "${it.address ?: "dirección no informada"} · ${bleAddressLabel(it.addressType)} · $manufacturer · $connection${it.services?.let { s -> " · $s" } ?: ""}",
+                "${it.address ?: "dirección no informada"} · ${bleAddressLabel(it.addressType, it.address)} · $manufacturer · $connection${it.services?.let { s -> " · $s" } ?: ""}",
                 rssiText(it.rssi),
             )
         }

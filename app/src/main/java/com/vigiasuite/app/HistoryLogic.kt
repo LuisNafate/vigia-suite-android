@@ -85,6 +85,9 @@ data class ComparisonResult(
 
 data class ComparisonFinding(val severity: String, val title: String, val detail: String)
 
+/** Advertencia por la versión de la fórmula. kind: "confirmed" o "possible"; delta = cambio de los puntos BLE o null. */
+data class FormulaWarning(val kind: String, val delta: Int?, val text: String)
+
 object HistoryLogic {
     private val MAC_REGEX = Regex("^[0-9A-F]{2}(:[0-9A-F]{2}){5}$")
     private val BLE_ADDRESS_TYPES = setOf("public", "random", "public_identity", "random_identity")
@@ -293,6 +296,40 @@ object HistoryLogic {
         (detail.assessment.wifiCount ?: Int.MAX_VALUE) >= RiskScore.CONGESTED_CHANNEL_NETWORKS
     }
 
+    /** Si la puntuación guardada pudo calcularse sin la clasificación BLE de la versión 3. null cuenta como «pudo». */
+    fun mayLackBleRule(assessment: AssessmentEntity): Boolean =
+        assessment.scoreFormula == null || assessment.scoreFormula < RiskScore.BLE_RULE_SINCE
+
+    /**
+     * Cambio de los puntos BLE con la clasificación de la versión 3. Con observaciones es exacto (0 = no le afecta); en un
+     * resumen histórico sólo se descarta si no tenía dispositivos cercanos y, si no, no se puede comprobar (null).
+     */
+    fun bleRuleDelta(detail: AssessmentDetail): Int? = if (detail.assessment.hasObservations) {
+        BleAddress.blePoints(detail.ble).let { it.current - it.previous }
+    } else {
+        if (detail.assessment.bleNearby == 0) 0 else null
+    }
+
+    private fun signedPoints(delta: Int) = "${if (delta > 0) "+" else "−"}${kotlin.math.abs(delta)} punto(s)"
+
+    /**
+     * Misma regla y textos que formulaWarning() de la versión Web: sólo si exactamente una evaluación pudo puntuarse sin la
+     * regla BLE y la regla cambiaría su parte BLE. Es «confirmed» sólo con versión registrada y observaciones guardadas.
+     */
+    fun formulaWarning(left: AssessmentDetail, right: AssessmentDetail): FormulaWarning? {
+        val withoutRule = listOf(left, right).filter { mayLackBleRule(it.assessment) }
+        if (withoutRule.size != 1) return null
+        val detail = withoutRule.single()
+        val delta = bleRuleDelta(detail)
+        if (delta == 0) return null
+        val version = detail.assessment.scoreFormula
+        return when {
+            delta == null -> FormulaWarning("possible", null, "Una de las evaluaciones es un resumen histórico sin versión de fórmula registrada y con dispositivos BLE cercanos. La clasificación BLE de la versión 3 (pública o aleatoria estática cuenta como estable; privada o no determinada no) pudo cambiar su puntuación, pero sin observaciones no se puede comprobar.")
+            version == null -> FormulaWarning("possible", delta, "Una de las evaluaciones no registra su versión de fórmula. Si se calculó antes de la versión 3, la clasificación BLE corregida cambiaría su parte BLE en ${signedPoints(delta)} según sus observaciones guardadas; no se puede confirmar qué fórmula se usó.")
+            else -> FormulaWarning("confirmed", delta, "Una de las evaluaciones se puntuó con la fórmula $version. Con la clasificación BLE de la versión 3 su parte BLE cambiaría en ${signedPoints(delta)} (comprobado con sus observaciones guardadas): esa parte de la diferencia se debe a la fórmula y no al entorno.")
+        }
+    }
+
     /**
      * Compara dos evaluaciones; la más antigua es la referencia. Wi-Fi se identifica por BSSID: un BSSID igual con
      * otro SSID es la misma red renombrada. En BLE sólo se emparejan direcciones públicas.
@@ -313,8 +350,9 @@ object HistoryLogic {
             if (a.status == HistoryStatus.PARTIAL || b.status == HistoryStatus.PARTIAL) add("Una de las evaluaciones quedó incompleta.")
             val withoutRule = listOf(older, newer).filter { mayLackCongestionRule(it.assessment) }
             if (withoutRule.size == 1 && congestionRuleApplies(withoutRule.single())) {
-                add("Una de las evaluaciones no registra haberse puntuado con la fórmula actual de Android (se guardó antes de esta versión o es un resumen histórico). Si se calculó sin la regla que suma 5 puntos cuando un canal concentra 12 o más redes, hasta 5 puntos de la diferencia pueden deberse a ese cambio y no al entorno.")
+                add("Una de las evaluaciones no registra haberse puntuado con la regla de congestión de Android (se guardó antes de la versión 2 o es un resumen histórico). Si se calculó sin la regla que suma 5 puntos cuando un canal concentra 12 o más redes, hasta 5 puntos de la diferencia pueden deberse a ese cambio y no al entorno.")
             }
+            formulaWarning(older, newer)?.let { add(it.text) }
         }
         if (!detailed) return ComparisonResult(a, b, false, warnings, WifiComparison(), BleComparison())
 
