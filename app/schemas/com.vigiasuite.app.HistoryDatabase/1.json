@@ -1,0 +1,281 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 1,
+    "identityHash": "f5b7709cc9de85b3f002af844d38b860",
+    "entities": [
+      {
+        "tableName": "assessments",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, `origin` TEXT NOT NULL, `source` TEXT NOT NULL, `status` TEXT NOT NULL, `sensorBoard` TEXT, `sensorChip` TEXT, `sensorMac` TEXT, `sensorFirmware` TEXT, `sensorProtocol` INTEGER, `score` INTEGER NOT NULL, `level` TEXT NOT NULL, `wifiCount` INTEGER, `bleCount` INTEGER, `wifiOpen` INTEGER, `bleNearby` INTEGER, `wifiTruncated` INTEGER, `bleTruncated` INTEGER, `bleFailed` INTEGER, `hasObservations` INTEGER NOT NULL, PRIMARY KEY(`id`))",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "createdAt",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "origin",
+            "columnName": "origin",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "source",
+            "columnName": "source",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sensorBoard",
+            "columnName": "sensorBoard",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sensorChip",
+            "columnName": "sensorChip",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sensorMac",
+            "columnName": "sensorMac",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sensorFirmware",
+            "columnName": "sensorFirmware",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "sensorProtocol",
+            "columnName": "sensorProtocol",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "score",
+            "columnName": "score",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "level",
+            "columnName": "level",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "wifiCount",
+            "columnName": "wifiCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "bleCount",
+            "columnName": "bleCount",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "wifiOpen",
+            "columnName": "wifiOpen",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "bleNearby",
+            "columnName": "bleNearby",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "wifiTruncated",
+            "columnName": "wifiTruncated",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "bleTruncated",
+            "columnName": "bleTruncated",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "bleFailed",
+            "columnName": "bleFailed",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "hasObservations",
+            "columnName": "hasObservations",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_assessments_createdAt",
+            "unique": false,
+            "columnNames": [
+              "createdAt"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_assessments_createdAt` ON `${TABLE_NAME}` (`createdAt`)"
+          }
+        ]
+      },
+      {
+        "tableName": "wifi_observations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`assessmentId` TEXT NOT NULL, `seq` INTEGER NOT NULL, `ssid` TEXT, `bssid` TEXT, `channel` INTEGER, `rssi` INTEGER, `auth` INTEGER, PRIMARY KEY(`assessmentId`, `seq`), FOREIGN KEY(`assessmentId`) REFERENCES `assessments`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "assessmentId",
+            "columnName": "assessmentId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seq",
+            "columnName": "seq",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "ssid",
+            "columnName": "ssid",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "bssid",
+            "columnName": "bssid",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "channel",
+            "columnName": "channel",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "rssi",
+            "columnName": "rssi",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "auth",
+            "columnName": "auth",
+            "affinity": "INTEGER"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "assessmentId",
+            "seq"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "assessments",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "assessmentId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "ble_observations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`assessmentId` TEXT NOT NULL, `seq` INTEGER NOT NULL, `name` TEXT, `address` TEXT, `addressType` TEXT NOT NULL, `rssi` INTEGER, `connectable` INTEGER, `manufacturerId` INTEGER, `services` TEXT, PRIMARY KEY(`assessmentId`, `seq`), FOREIGN KEY(`assessmentId`) REFERENCES `assessments`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "assessmentId",
+            "columnName": "assessmentId",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "seq",
+            "columnName": "seq",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "address",
+            "columnName": "address",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "addressType",
+            "columnName": "addressType",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "rssi",
+            "columnName": "rssi",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "connectable",
+            "columnName": "connectable",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "manufacturerId",
+            "columnName": "manufacturerId",
+            "affinity": "INTEGER"
+          },
+          {
+            "fieldPath": "services",
+            "columnName": "services",
+            "affinity": "TEXT"
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": false,
+          "columnNames": [
+            "assessmentId",
+            "seq"
+          ]
+        },
+        "foreignKeys": [
+          {
+            "table": "assessments",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "assessmentId"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      }
+    ],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f5b7709cc9de85b3f002af844d38b860')"
+    ]
+  }
+}
