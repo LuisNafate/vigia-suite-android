@@ -35,16 +35,6 @@ class HistoryRepository(
     val assessments: StateFlow<List<AssessmentEntity>> = dao.observeAssessments().stateIn(scope, SharingStarted.Eagerly, emptyList())
     val message: StateFlow<String?> = _message.asStateFlow()
 
-    init {
-        // Primer inicio con la fórmula actual: lo guardado antes conserva su puntuación y la comparación lo advierte.
-        // Se registra al crear el repositorio, antes de que pueda guardarse ninguna evaluación nueva.
-        // apply() actualiza la copia en memoria al instante: las lecturas posteriores ya ven el valor.
-        if (!preferences.contains(SCORING_REVISION_KEY)) preferences.edit().putLong(SCORING_REVISION_KEY, clock()).apply()
-    }
-
-    /** Desde cuándo las evaluaciones de este teléfono usan RiskScore.FORMULA_VERSION. */
-    val scoringRevisionSince: Long get() = preferences.getLong(SCORING_REVISION_KEY, 0L)
-
     /** Migra el historial anterior y aplica la política de conservación. Se llama una vez al iniciar la app. */
     fun start() = scope.launch {
         val report = migrateLegacy()
@@ -118,7 +108,7 @@ class HistoryRepository(
     suspend fun compare(firstId: String, secondId: String): ComparisonResult? {
         val first = dao.detail(firstId) ?: return null
         val second = dao.detail(secondId) ?: return null
-        return HistoryLogic.compare(first, second, scoringRevisionSince)
+        return HistoryLogic.compare(first, second)
     }
 
     suspend fun delete(ids: List<String>) {
@@ -167,7 +157,6 @@ class HistoryRepository(
         const val LEGACY_KEY = "analysis_records_v1"
         const val RETENTION_COUNT_KEY = "retention_max_count"
         const val RETENTION_AGE_KEY = "retention_max_age_days"
-        const val SCORING_REVISION_KEY = "scoring_formula_v${RiskScore.FORMULA_VERSION}_since"
 
         fun create(context: Context) = HistoryRepository(context, HistoryDatabase.open(context))
     }

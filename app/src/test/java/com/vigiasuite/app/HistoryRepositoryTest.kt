@@ -178,20 +178,24 @@ class HistoryRepositoryTest {
     }
 
     @Test
-    fun scoringRevisionIsRecordedOnceAndUsedWhenComparing() = runBlocking {
-        val since = repository.scoringRevisionSince
-        assertEquals("se registra al crear el repositorio", now, since)
-        now += 60_000
-        val again = HistoryRepository(context, database, scope) { now }
-        assertEquals("un segundo inicio no la cambia", since, again.scoringRevisionSince)
-
-        // Evaluación anterior al cambio (simulada con una fecha previa) con 12 redes en un canal, y otra posterior.
+    fun formulaVersionIsStoredWithEachEvaluationAndSurvivesLosingPreferences() = runBlocking {
+        prefs.edit().putString(HistoryRepository.LEGACY_KEY, legacyJson(AnalysisRecord(1_700_000_000_000, 33, "MEDIO", 7, 2, 4, 1))).commit()
+        repository.migrateLegacy()
         val congested = (1..12).map { WifiNetwork("Red$it", -60, 6, 3, "AA:AA:AA:AA:AA:%02X".format(it)) }
-        val old = HistoryLogic.buildAssessment("old", since - 1_000, HistoryStatus.COMPLETE, SensorIdentity(), 0, congested, emptyList(), false, false, false)
-        database.historyDao().insertDetail(old)
-        val newId = save(score = 5, w = congested, b = emptyList())
-        val result = repository.compare("old", newId)!!
-        assertEquals(0, result.before.score)
-        assertTrue(result.warnings.any { "fórmula previa de Android" in it })
+        val first = save(score = 5, w = congested, b = emptyList())
+        val second = save(score = 5, w = congested, b = emptyList())
+        val stored = database.historyDao().assessments().associateBy { it.id }
+        assertEquals(RiskScore.FORMULA_VERSION, stored.getValue(first).scoreFormula)
+        assertNull("el resumen migrado no inventa versión", stored.values.single { it.source == HistorySource.LEGACY }.scoreFormula)
+
+        // Se borran todas las preferencias (y con ellas el respaldo anterior) pero la base de datos sigue.
+        prefs.edit().clear().commit()
+        now -= 10L * 365 * 24 * 60 * 60 * 1000 // además, el reloj del teléfono retrocede diez años
+        val reopened = HistoryRepository(context, database, scope) { now }
+        assertFalse(reopened.compare(first, second)!!.warnings.any { "fórmula actual de Android" in it })
+        val third = reopened.save(HistoryStatus.COMPLETE, SensorIdentity(), 5, congested, emptyList(), false, false, false)
+        assertFalse("una evaluación nueva con fecha anterior no se confunde con la fórmula previa",
+            reopened.compare(first, third)!!.warnings.any { "fórmula actual de Android" in it })
+        assertEquals(listOf(5, 5, 5), listOf(first, second, third).map { database.historyDao().assessments(listOf(it)).single().score })
     }
 }

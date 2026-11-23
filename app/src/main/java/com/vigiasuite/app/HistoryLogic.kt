@@ -123,7 +123,10 @@ object HistoryLogic {
         services = device.services.trim().ifBlank { null },
     )
 
-    /** Evaluación completa. La puntuación se recibe ya calculada con la fórmula existente: aquí no se recalcula. */
+    /**
+     * Evaluación completa. La puntuación se recibe ya calculada (RiskScore.compute) y aquí no se recalcula; se guarda
+     * junto con la versión de la fórmula que la produjo.
+     */
     fun buildAssessment(
         id: String,
         createdAt: Long,
@@ -135,6 +138,7 @@ object HistoryLogic {
         wifiTruncated: Boolean?,
         bleTruncated: Boolean?,
         bleFailed: Boolean?,
+        scoreFormula: Int? = RiskScore.FORMULA_VERSION,
     ): AssessmentDetail {
         require(id.isNotBlank()) { "La evaluación necesita un identificador." }
         require(score in 0..100) { "La puntuación debe estar entre 0 y 100." }
@@ -149,7 +153,7 @@ object HistoryLogic {
             wifiCount = wifi.size, bleCount = ble.size,
             wifiOpen = wifi.count { it.auth == 0 }, bleNearby = ble.count { (it.rssi ?: -999) >= -65 },
             wifiTruncated = wifiTruncated, bleTruncated = bleTruncated, bleFailed = bleFailed,
-            hasObservations = true,
+            hasObservations = true, scoreFormula = scoreFormula,
         )
         return AssessmentDetail(assessment, wifi, ble)
     }
@@ -166,7 +170,7 @@ object HistoryLogic {
             status = HistoryStatus.LEGACY, sensorBoard = null, sensorChip = null, sensorMac = null, sensorFirmware = null,
             sensorProtocol = null, score = record.score, level = record.level,
             wifiCount = record.wifiTotal, bleCount = record.bleTotal, wifiOpen = record.wifiOpen, bleNearby = record.bleNearby,
-            wifiTruncated = null, bleTruncated = null, bleFailed = null, hasObservations = false,
+            wifiTruncated = null, bleTruncated = null, bleFailed = null, hasObservations = false, scoreFormula = null,
         )
     }
 
@@ -214,11 +218,17 @@ object HistoryLogic {
     }
 
     /**
-     * Si una evaluación guardada antes de [scoringRevisionSince] pudo puntuar distinto con la fórmula actual. La única
-     * regla nueva es la de congestión: con observaciones se sabe exactamente si aplicaba; con un resumen histórico sólo
-     * se descarta cuando hay menos de 12 redes en total.
+     * Si la puntuación guardada pudo calcularse sin la regla de congestión (RiskScore.CONGESTION_RULE_SINCE). Sólo lo
+     * dice la versión guardada en la evaluación; null (no registrada) se trata como «pudo», nunca como un valor supuesto.
      */
-    fun scoredWithPreviousFormula(detail: AssessmentDetail): Boolean = if (detail.assessment.hasObservations) {
+    fun mayLackCongestionRule(assessment: AssessmentEntity): Boolean =
+        assessment.scoreFormula == null || assessment.scoreFormula < RiskScore.CONGESTION_RULE_SINCE
+
+    /**
+     * Si la regla de congestión habría aplicado a esta evaluación. Con observaciones se sabe exactamente (un canal con 12
+     * o más redes); con un resumen histórico sólo se descarta cuando hay menos de 12 redes en total.
+     */
+    fun congestionRuleApplies(detail: AssessmentDetail): Boolean = if (detail.assessment.hasObservations) {
         (RiskScore.busiestChannel(detail.wifi.map { it.channel })?.second ?: 0) >= RiskScore.CONGESTED_CHANNEL_NETWORKS
     } else {
         (detail.assessment.wifiCount ?: Int.MAX_VALUE) >= RiskScore.CONGESTED_CHANNEL_NETWORKS
@@ -228,11 +238,10 @@ object HistoryLogic {
      * Compara dos evaluaciones; la más antigua es la referencia. Wi-Fi se identifica por BSSID: un BSSID igual con
      * otro SSID es la misma red renombrada. En BLE sólo se emparejan direcciones públicas.
      *
-     * [scoringRevisionSince] es el momento desde el que Android usa la fórmula actual (RiskScore.FORMULA_VERSION). Las
-     * evaluaciones anteriores conservan su puntuación; si sólo la referencia es anterior y la regla nueva le habría
-     * aplicado, se advierte. La versión Web no necesita esta advertencia: su fórmula no cambió.
+     * Las puntuaciones guardadas no se recalculan. Si sólo una de las dos pudo puntuarse sin la regla de congestión y esa
+     * regla le habría aplicado, se advierte. La versión Web no necesita esta advertencia: su fórmula no cambió.
      */
-    fun compare(left: AssessmentDetail, right: AssessmentDetail, scoringRevisionSince: Long? = null): ComparisonResult {
+    fun compare(left: AssessmentDetail, right: AssessmentDetail): ComparisonResult {
         val (older, newer) = if (left.assessment.createdAt <= right.assessment.createdAt) left to right else right to left
         val a = older.assessment
         val b = newer.assessment
@@ -243,8 +252,9 @@ object HistoryLogic {
             if (a.bleTruncated == true || b.bleTruncated == true) add("El inventario BLE alcanzó el límite de 32 dispositivos del sensor.")
             if (a.bleFailed == true || b.bleFailed == true) add("El escaneo Bluetooth falló en una de las evaluaciones: la comparación BLE no es representativa.")
             if (a.status == HistoryStatus.PARTIAL || b.status == HistoryStatus.PARTIAL) add("Una de las evaluaciones quedó incompleta.")
-            if (scoringRevisionSince != null && a.createdAt < scoringRevisionSince && b.createdAt >= scoringRevisionSince && scoredWithPreviousFormula(older)) {
-                add("La evaluación anterior se puntuó con la fórmula previa de Android, que no sumaba 5 puntos cuando un canal concentra 12 o más redes. Hasta 5 puntos de la diferencia pueden deberse a ese cambio y no al entorno.")
+            val withoutRule = listOf(older, newer).filter { mayLackCongestionRule(it.assessment) }
+            if (withoutRule.size == 1 && congestionRuleApplies(withoutRule.single())) {
+                add("Una de las evaluaciones no registra haberse puntuado con la fórmula actual de Android (se guardó antes de esta versión o es un resumen histórico). Si se calculó sin la regla que suma 5 puntos cuando un canal concentra 12 o más redes, hasta 5 puntos de la diferencia pueden deberse a ese cambio y no al entorno.")
             }
         }
         if (!detailed) return ComparisonResult(a, b, false, warnings, WifiComparison(), BleComparison())

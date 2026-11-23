@@ -13,6 +13,8 @@ package com.vigiasuite.app
 object RiskScore {
     /** Desde esta versión Android suma la regla de congestión de Web. Las evaluaciones anteriores conservan su puntuación. */
     const val FORMULA_VERSION = 2
+    /** Primera versión con la regla de congestión. Se guarda en AssessmentEntity.scoreFormula. */
+    const val CONGESTION_RULE_SINCE = 2
     const val CONGESTED_CHANNEL_NETWORKS = 12
 
     data class Result(

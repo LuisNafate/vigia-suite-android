@@ -13,8 +13,9 @@ class HistoryLogicTest {
     private fun ble(address: String, type: String = "public", rssi: Int = -70) = BleDevice("", rssi, address, type, false, -1, "")
 
     private fun detail(id: String, createdAt: Long, wifi: List<WifiNetwork> = emptyList(), ble: List<BleDevice> = emptyList(),
-                       status: String = HistoryStatus.COMPLETE, wifiTruncated: Boolean? = false, bleFailed: Boolean? = false) =
-        HistoryLogic.buildAssessment(id, createdAt, status, SensorIdentity(), 10, wifi, ble, wifiTruncated, false, bleFailed)
+                       status: String = HistoryStatus.COMPLETE, wifiTruncated: Boolean? = false, bleFailed: Boolean? = false,
+                       scoreFormula: Int? = RiskScore.FORMULA_VERSION) =
+        HistoryLogic.buildAssessment(id, createdAt, status, SensorIdentity(), 10, wifi, ble, wifiTruncated, false, bleFailed, scoreFormula)
 
     @Test
     fun buildAssessmentKeepsProtocolFieldsAndMarksUnknownAsNull() {
@@ -121,25 +122,26 @@ class HistoryLogicTest {
     }
 
     @Test
-    fun comparisonAcrossTheScoringChangeWarnsOnlyWhenTheCongestionRuleApplied() {
-        val since = 1_000L
+    fun comparisonWarnsFromTheStoredFormulaVersionNotFromDates() {
         val congested = (1..12).map { ap("AA:AA:AA:AA:AA:%02X".format(it), channel = 6) }
         val spread = (1..12).map { ap("AA:AA:AA:AA:AA:%02X".format(it), channel = it) }
-        val warning = "fórmula previa de Android"
-        fun warns(before: AssessmentDetail, after: AssessmentDetail) =
-            HistoryLogic.compare(after, before, since).warnings.any { warning in it }
+        val warning = "fórmula actual de Android"
+        fun warns(first: AssessmentDetail, second: AssessmentDetail) = HistoryLogic.compare(first, second).warnings.any { warning in it }
+        val unrecorded = { id: String, at: Long, wifi: List<WifiNetwork> -> detail(id, at, wifi, scoreFormula = null) }
 
-        assertTrue("antes con 12 redes en el canal 6", warns(detail("a", 500, congested), detail("b", 1_500, congested)))
-        assertFalse("antes sin canal congestionado: la fórmula nueva da lo mismo", warns(detail("a", 500, spread), detail("b", 1_500, congested)))
-        assertFalse("las dos con la fórmula nueva", warns(detail("a", 1_000, congested), detail("b", 1_500, congested)))
-        assertFalse("las dos con la fórmula anterior", warns(detail("a", 500, congested), detail("b", 900, congested)))
-        assertFalse("sin fecha de cambio no se advierte", HistoryLogic.compare(detail("a", 500, congested), detail("b", 1_500, congested)).warnings.any { warning in it })
+        assertTrue("sin versión registrada y con 12 redes en un canal", warns(unrecorded("a", 500, congested), detail("b", 1_500, congested)))
+        assertFalse("sin versión registrada pero la regla no aplicaba", warns(unrecorded("a", 500, spread), detail("b", 1_500, congested)))
+        assertFalse("las dos con la fórmula actual, aunque una tenga fecha muy anterior", warns(detail("a", 1, congested), detail("b", 1_500, congested)))
+        assertFalse("las dos sin versión: misma situación, nada que advertir", warns(unrecorded("a", 500, congested), unrecorded("b", 1_500, congested)))
+        // Un reloj atrasado puede dejar la evaluación actual con una fecha anterior: decide la versión, no el orden.
+        assertTrue("la evaluación sin versión es la más reciente", warns(detail("a", 500, spread), unrecorded("b", 1_500, congested)))
 
         val legacy = { wifiTotal: Int -> AssessmentDetail(HistoryLogic.legacyAssessment(AnalysisRecord(400, 20, "BAJO", wifiTotal, 0, 0, 0)), emptyList(), emptyList()) }
+        assertNull("un resumen histórico no inventa versión", legacy(15).assessment.scoreFormula)
         assertTrue("resumen histórico con 15 redes: no se puede descartar", warns(legacy(15), detail("b", 1_500, congested)))
         assertFalse("resumen histórico con 3 redes: imposible 12 en un canal", warns(legacy(3), detail("b", 1_500, congested)))
         // La puntuación guardada no se recalcula.
-        assertEquals(20, HistoryLogic.compare(legacy(15), detail("b", 1_500, congested), since).before.score)
+        assertEquals(20, HistoryLogic.compare(legacy(15), detail("b", 1_500, congested)).before.score)
     }
 
     @Test

@@ -13,9 +13,12 @@ import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
-// Esquema Room v1 del historial. Modelo lógico equivalente a IndexedDB en Vigía Suite Web.
+// Esquema Room v2 del historial. Modelo lógico equivalente a IndexedDB en Vigía Suite Web; scoreFormula sólo existe en
+// Android, porque la fórmula de Web no cambió.
 
 @Entity(tableName = "assessments", indices = [Index("createdAt")])
 data class AssessmentEntity(
@@ -41,6 +44,11 @@ data class AssessmentEntity(
     val bleTruncated: Boolean?,
     val bleFailed: Boolean?,
     val hasObservations: Boolean,
+    /**
+     * Versión de RiskScore con la que se calculó score (RiskScore.FORMULA_VERSION). null = no registrada: evaluaciones
+     * guardadas con la versión 1 de la base y resúmenes históricos. No se deduce ni se rellena después.
+     */
+    val scoreFormula: Int? = null,
 )
 
 @Entity(
@@ -162,7 +170,7 @@ abstract class HistoryDao {
 
 @Database(
     entities = [AssessmentEntity::class, WifiObservationEntity::class, BleObservationEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = true,
 )
 abstract class HistoryDatabase : RoomDatabase() {
@@ -171,7 +179,14 @@ abstract class HistoryDatabase : RoomDatabase() {
     companion object {
         const val NAME = "vigia_history.db"
 
+        /** v1 -> v2: agrega scoreFormula vacía. Las evaluaciones existentes y su puntuación no se modifican. */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `assessments` ADD COLUMN `scoreFormula` INTEGER")
+            }
+        }
+
         fun open(context: Context): HistoryDatabase =
-            Room.databaseBuilder(context.applicationContext, HistoryDatabase::class.java, NAME).build()
+            Room.databaseBuilder(context.applicationContext, HistoryDatabase::class.java, NAME).addMigrations(MIGRATION_1_2).build()
     }
 }
