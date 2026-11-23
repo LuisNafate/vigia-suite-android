@@ -44,7 +44,12 @@ data class AssessmentDetail(
 )
 
 data class ChannelChange(val bssid: String, val before: WifiObservationEntity, val after: WifiObservationEntity)
-data class AuthChange(val bssid: String, val before: WifiObservationEntity, val after: WifiObservationEntity, val downgrade: Boolean)
+/** Cómo cambia la protección de un BSSID entre dos evaluaciones. `code` coincide con la versión Web. */
+enum class AuthProtection(val code: String) { WEAKER("weaker"), STRONGER("stronger"), EQUIVALENT("equivalent"), UNKNOWN("unknown") }
+
+data class AuthChange(val bssid: String, val before: WifiObservationEntity, val after: WifiObservationEntity, val protection: AuthProtection) {
+    val downgrade: Boolean get() = protection == AuthProtection.WEAKER
+}
 data class SsidChange(val bssid: String, val before: WifiObservationEntity, val after: WifiObservationEntity)
 
 data class WifiComparison(
@@ -85,8 +90,34 @@ object HistoryLogic {
     private val BLE_ADDRESS_TYPES = setOf("public", "random", "public_identity", "random_identity")
     private const val DAY_MS = 24L * 60 * 60 * 1000
 
-    // Orden de robustez de wifi_auth_mode_t del ESP32. Un modo desconocido no se juzga.
-    private val AUTH_RANK = mapOf(0 to 0, 1 to 1, 2 to 2, 4 to 3, 3 to 4, 8 to 4, 5 to 5, 7 to 5, 6 to 6)
+    /** Familia y nivel de cifrado de un modo de autenticación; level null = sin nivel comparable. */
+    data class AuthMode(val family: String, val level: Int?)
+
+    /**
+     * wifi_auth_mode_t de ESP-IDF v5.5.5 (núcleo Arduino-ESP32 3.3.12 del firmware 0.5.0; el firmware envía el valor
+     * sin traducir). El número del modo no es un orden de seguridad: dentro de las familias personal y empresarial el
+     * nivel es 2 = sólo TKIP, 3 = TKIP/CCMP mixto, 4 = WPA2, 5 = transición WPA2/WPA3, 6 = WPA3, 7 = WPA3 Suite B 192.
+     * Igual que AUTH_MODES de vigia-suite-web/pc-lab/history-core.js (auth-change-cases.json lo comprueba).
+     */
+    private val AUTH_MODES = mapOf(
+        0 to AuthMode("open", null), // OPEN
+        1 to AuthMode("wep", null), // WEP
+        2 to AuthMode("personal", 2), // WPA_PSK
+        3 to AuthMode("personal", 4), // WPA2_PSK
+        4 to AuthMode("personal", 3), // WPA_WPA2_PSK
+        5 to AuthMode("enterprise", 4), // ENTERPRISE = WPA2_ENTERPRISE
+        6 to AuthMode("personal", 6), // WPA3_PSK
+        7 to AuthMode("personal", 5), // WPA2_WPA3_PSK
+        8 to AuthMode("wapi", null), // WAPI_PSK
+        9 to AuthMode("owe", null), // OWE
+        10 to AuthMode("enterprise", 7), // WPA3_ENT_192
+        11 to AuthMode("personal", 6), // WPA3_EXT_PSK (mismo resultado que WPA3_PSK según Espressif)
+        12 to AuthMode("personal", 6), // WPA3_EXT_PSK_MIXED_MODE (ídem)
+        13 to AuthMode("dpp", null), // DPP
+        14 to AuthMode("enterprise", 6), // WPA3_ENTERPRISE
+        15 to AuthMode("enterprise", 5), // WPA2_WPA3_ENTERPRISE
+        16 to AuthMode("enterprise", 2), // WPA_ENTERPRISE
+    )
 
     fun normalizeMac(value: String?): String? {
         val text = value?.trim()?.uppercase()?.replace('-', ':') ?: return null
@@ -196,13 +227,41 @@ object HistoryLogic {
         return sorted.filter { it.id in expired }.map { it.id }
     }
 
-    fun authRank(auth: Int?): Int? = auth?.let { AUTH_RANK[it] }
+    fun authMode(auth: Int?): AuthMode? = auth?.let { AUTH_MODES[it] }
 
-    fun isAuthDowngrade(before: Int?, after: Int?): Boolean {
-        val from = authRank(before) ?: return false
-        val to = authRank(after) ?: return false
-        return to < from
+    private fun withCredentialsAndCcmp(mode: AuthMode) = mode.family == "dpp" || (mode.level ?: 0) >= 4
+
+    private fun compareLevels(from: Int, to: Int) =
+        if (to < from) AuthProtection.WEAKER else if (to > from) AuthProtection.STRONGER else AuthProtection.EQUIVALENT
+
+    /**
+     * Sólo se declara un debilitamiento con evidencia técnica: pérdida de cifrado (abierta), cifrado roto (WEP), pérdida
+     * de credenciales (OWE frente a WPA2 o superior), un nivel menor dentro de la misma familia, o volver a admitir TKIP.
+     * Modos desconocidos y esquemas que no se ordenan entre sí (personal frente a empresarial con el mismo cifrado,
+     * WAPI, DPP) quedan en UNKNOWN. Misma regla que authProtectionChange() de la versión Web.
+     */
+    fun authProtectionChange(before: Int?, after: Int?): AuthProtection {
+        val from = authMode(before) ?: return AuthProtection.UNKNOWN
+        val to = authMode(after) ?: return AuthProtection.UNKNOWN
+        if (before == after) return AuthProtection.EQUIVALENT
+        // Abierta (sin cifrado) < WEP (cifrado roto) < cualquier otro modo conocido.
+        if (to.family == "open") return AuthProtection.WEAKER
+        if (from.family == "open") return AuthProtection.STRONGER
+        if (to.family == "wep") return AuthProtection.WEAKER
+        if (from.family == "wep") return AuthProtection.STRONGER
+        // OWE cifra con CCMP sin autenticar: frente a WPA/TKIP o WAPI se gana cifrado y se pierden credenciales.
+        if (to.family == "owe") return if (withCredentialsAndCcmp(from)) AuthProtection.WEAKER else AuthProtection.UNKNOWN
+        if (from.family == "owe") return if (withCredentialsAndCcmp(to)) AuthProtection.STRONGER else AuthProtection.UNKNOWN
+        val fromLevel = from.level ?: return AuthProtection.UNKNOWN
+        val toLevel = to.level ?: return AuthProtection.UNKNOWN
+        if (from.family == to.family) return compareLevels(fromLevel, toLevel)
+        // Personal frente a empresarial: sólo es comparable cuando uno admite TKIP (nivel 2-3) y el otro no.
+        if (toLevel <= 3 && fromLevel >= 4) return AuthProtection.WEAKER
+        if (fromLevel <= 3 && toLevel >= 4) return AuthProtection.STRONGER
+        return AuthProtection.UNKNOWN
     }
+
+    fun isAuthDowngrade(before: Int?, after: Int?): Boolean = authProtectionChange(before, after) == AuthProtection.WEAKER
 
     // Sólo una dirección pública (tipo 0) identifica de forma estable. Aleatorias y resolubles (RPA) cambian.
     fun isStableBleAddress(observation: BleObservationEntity) = observation.addressType == "public" && observation.address != null
@@ -277,7 +336,7 @@ object HistoryLogic {
             }
             var changed = false
             if (previous.channel != null && current.channel != null && previous.channel != current.channel) { channel += ChannelChange(bssid, previous, current); changed = true }
-            if (previous.auth != null && current.auth != null && previous.auth != current.auth) { auth += AuthChange(bssid, previous, current, isAuthDowngrade(previous.auth, current.auth)); changed = true }
+            if (previous.auth != null && current.auth != null && previous.auth != current.auth) { auth += AuthChange(bssid, previous, current, authProtectionChange(previous.auth, current.auth)); changed = true }
             if (previous.ssid != null && current.ssid != null && previous.ssid != current.ssid) { renamed += SsidChange(bssid, previous, current); changed = true }
             if (!changed) unchanged += 1
         }
@@ -306,11 +365,13 @@ object HistoryLogic {
     fun findings(result: ComparisonResult): List<ComparisonFinding> = buildList {
         val downgrades = result.wifi.authChanged.count { it.downgrade }
         val newOpen = result.wifi.added.count { it.auth == 0 }
-        if (downgrades > 0) add(ComparisonFinding("high", "$downgrades red(es) redujeron su protección", "El mismo BSSID anuncia ahora un cifrado más débil. Verifica la configuración del punto de acceso."))
+        if (downgrades > 0) add(ComparisonFinding("high", "$downgrades red(es) redujeron su protección", "El mismo BSSID anuncia ahora una protección más débil (menos cifrado, cifrado heredado o sin credenciales). Verifica la configuración del punto de acceso."))
         if (result.wifi.ssidReuse.isNotEmpty()) add(ComparisonFinding("medium", "${result.wifi.ssidReuse.size} BSSID nuevo(s) con un SSID ya conocido", "Puede ser un AP adicional, una red mesh o un AP no autorizado. Valida ubicación y propietario antes de concluir."))
         if (newOpen > 0) add(ComparisonFinding("medium", "$newOpen red(es) abierta(s) nueva(s)", "Aparecieron redes sin cifrado que no estaban en la evaluación anterior."))
-        val otherAuth = result.wifi.authChanged.size - downgrades
+        val unrated = result.wifi.authChanged.count { it.protection == AuthProtection.UNKNOWN }
+        val otherAuth = result.wifi.authChanged.size - downgrades - unrated
         if (otherAuth > 0) add(ComparisonFinding("info", "$otherAuth cambio(s) de autenticación sin pérdida de protección", "El BSSID mantiene o mejora su cifrado."))
+        if (unrated > 0) add(ComparisonFinding("info", "$unrated cambio(s) de autenticación sin calificar", "El modo no es reconocido o los dos modos no se ordenan entre sí (personal y empresarial con el mismo cifrado, WAPI o DPP). Revísalo manualmente."))
         if (result.wifi.channelChanged.isNotEmpty()) add(ComparisonFinding("info", "${result.wifi.channelChanged.size} red(es) cambiaron de canal", "Es habitual cuando el AP elige canal automáticamente."))
         if (result.wifi.renamed.isNotEmpty()) add(ComparisonFinding("info", "${result.wifi.renamed.size} red(es) cambiaron de nombre", "Mismo BSSID con otro SSID: se trata como la misma red reconfigurada, no como una red nueva."))
     }

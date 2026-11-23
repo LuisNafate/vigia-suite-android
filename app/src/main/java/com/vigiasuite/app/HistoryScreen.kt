@@ -51,6 +51,13 @@ private fun statusLabel(status: String) = when (status) {
 }
 private fun ssidLabel(ssid: String?) = when { ssid == null -> "No informado"; ssid.isEmpty() -> "[oculta]"; else -> ssid }
 private fun authText(auth: Int?) = auth?.let(::authLabel) ?: "No informado"
+/** Texto de una fila de «Cambios de autenticación»: igual que la columna de history.js en Web. */
+internal fun authChangeDetail(change: AuthChange) = change.bssid + when (change.protection) {
+    AuthProtection.WEAKER -> " · protección más débil"
+    AuthProtection.UNKNOWN -> " · cambio sin calificar"
+    else -> ""
+}
+internal fun authChangeValue(change: AuthChange) = "${authText(change.before.auth)} → ${authText(change.after.auth)}"
 private fun rssiText(rssi: Int?) = rssi?.let { "$it dBm" } ?: "—"
 private fun orUnknown(value: Any?) = value?.toString() ?: "No disponible"
 
@@ -255,7 +262,7 @@ private fun ComparisonCard(repository: HistoryRepository, ids: Pair<String, Stri
     }
     ResultCard("Cambios de autenticación", wifi.authChanged.size) {
         if (wifi.authChanged.isEmpty()) EmptyResult("Sin cambios.")
-        wifi.authChanged.forEach { ResultRow(ssidLabel(it.after.ssid), "${it.bssid}${if (it.downgrade) " · protección más débil" else ""}", "${authText(it.before.auth)} → ${authText(it.after.auth)}") }
+        wifi.authChanged.forEach { ResultRow(ssidLabel(it.after.ssid), authChangeDetail(it), authChangeValue(it)) }
     }
     ResultCard("Cambios de nombre", wifi.renamed.size) {
         if (wifi.renamed.isEmpty()) EmptyResult("Sin cambios.")
