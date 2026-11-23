@@ -467,7 +467,16 @@ internal fun authLabel(value: Int?): String = when (value) {
     6 -> "WPA3-PSK"
     7 -> "WPA2/WPA3"
     8 -> "WAPI"
-    else -> "Modo $value"
+    // Modos 9-16 de wifi_auth_mode_t en el núcleo esp32 3.3.12 (firmware/build-config.json del repositorio Web).
+    9 -> "OWE"
+    10 -> "WPA3 Enterprise 192 bits"
+    11 -> "WPA3-PSK (EXT)"
+    12 -> "WPA3-PSK mixto (EXT)"
+    13 -> "DPP"
+    14 -> "WPA3 Enterprise"
+    15 -> "WPA2/WPA3 Enterprise"
+    16 -> "WPA Enterprise"
+    else -> "Modo $value no reconocido"
 }
 
 internal fun dbmLabel(rssi: Int?): String = rssi?.let { "$it dBm" } ?: "RSSI no informado"
