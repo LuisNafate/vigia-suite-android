@@ -2,12 +2,12 @@
   <h1>Vigía Suite Android</h1>
   <p><strong>Cliente móvil defensivo para NodeMCU ESP-32S mediante USB-OTG.</strong></p>
   <p>
-    <a href="https://github.com/LuisNafate/vigia-suite-android/releases/tag/v0.7.0-beta"><img alt="Descargar APK" src="https://img.shields.io/badge/ANDROID-DESCARGAR%20APK-3DDC84?style=for-the-badge&logo=android&logoColor=white"></a>
+    <a href="https://github.com/LuisNafate/vigia-suite-android/releases/tag/v0.8.0-beta"><img alt="Descargar APK" src="https://img.shields.io/badge/ANDROID-DESCARGAR%20APK-3DDC84?style=for-the-badge&logo=android&logoColor=white"></a>
     <a href="https://vigia-suite-web-pc-lab.vercel.app"><img alt="Abrir versión web" src="https://img.shields.io/badge/VERCEL-ABRIR%20WEB-000000?style=for-the-badge&logo=vercel&logoColor=white"></a>
     <a href="https://github.com/LuisNafate/vigia-suite-android"><img alt="Repositorio Android" src="https://img.shields.io/badge/GITHUB-C%C3%93DIGO-181717?style=for-the-badge&logo=github&logoColor=white"></a>
   </p>
   <p>
-    <img alt="Versión beta 0.7" src="https://img.shields.io/badge/VERSI%C3%93N-0.7%20BETA-202020?style=flat-square">
+    <img alt="Versión beta 0.8" src="https://img.shields.io/badge/VERSI%C3%93N-0.8%20BETA-202020?style=flat-square">
     <img alt="Android" src="https://img.shields.io/badge/ANDROID-USB%20HOST-3DDC84?style=flat-square&logo=android&logoColor=white">
     <img alt="Kotlin" src="https://img.shields.io/badge/KOTLIN-2.3.21-7F52FF?style=flat-square&logo=kotlin&logoColor=white">
     <img alt="Jetpack Compose" src="https://img.shields.io/badge/JETPACK-COMPOSE-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white">
@@ -27,16 +27,16 @@ Aplicación Android de Vigía Suite para conectar un NodeMCU ESP‑32S mediante 
 
 | Recurso | Acceso |
 |---|---|
-| APK de prueba | [Descargar 0.7.0 Beta](https://github.com/LuisNafate/vigia-suite-android/releases/tag/v0.7.0-beta) |
+| APK de prueba | [Descargar 0.8.0 Beta](https://github.com/LuisNafate/vigia-suite-android/releases/tag/v0.8.0-beta) |
 | Aplicación web | [Abrir Vigía Suite en Vercel](https://vigia-suite-web-pc-lab.vercel.app) |
 | Repositorio web | [Vigía Suite Web](https://github.com/LuisNafate/vigia-suite-web) |
 | Historial Android | [Commits de main](https://github.com/LuisNafate/vigia-suite-android/commits/main) |
 
 ## Descargar APK
 
-La versión instalable está disponible en [GitHub Releases](https://github.com/LuisNafate/vigia-suite-android/releases/tag/v0.7.0-beta).
+La versión instalable está disponible en [GitHub Releases](https://github.com/LuisNafate/vigia-suite-android/releases/tag/v0.8.0-beta).
 
-> La versión 0.7.0-beta se distribuye como APK de prueba. Android puede solicitar autorización para instalar aplicaciones desde el navegador o gestor de archivos.
+> La versión 0.8.0-beta se distribuye como APK de prueba. Android puede solicitar autorización para instalar aplicaciones desde el navegador o gestor de archivos.
 
 ## Requisitos
 

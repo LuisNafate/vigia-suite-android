@@ -25,7 +25,13 @@ function Get-AndExpandZip {
         }
         New-Item -ItemType Directory -Force -Path $temporary | Out-Null
         Write-Host "Descargando $Uri"
-        Invoke-WebRequest -Uri $Uri -OutFile $Archive -UseBasicParsing
+        $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
+        if ($curl) {
+            & $curl.Source --fail --location --retry 3 --output $Archive $Uri
+            if ($LASTEXITCODE -ne 0) { throw "No se pudo descargar $Uri con curl.exe." }
+        } else {
+            Invoke-WebRequest -Uri $Uri -OutFile $Archive -UseBasicParsing
+        }
         Expand-Archive -LiteralPath $Archive -DestinationPath $temporary -Force
         New-Item -ItemType Directory -Force -Path $Destination | Out-Null
         Get-ChildItem -LiteralPath $temporary | ForEach-Object {
