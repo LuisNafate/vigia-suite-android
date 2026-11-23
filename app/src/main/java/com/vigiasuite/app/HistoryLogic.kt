@@ -214,10 +214,25 @@ object HistoryLogic {
     }
 
     /**
+     * Si una evaluación guardada antes de [scoringRevisionSince] pudo puntuar distinto con la fórmula actual. La única
+     * regla nueva es la de congestión: con observaciones se sabe exactamente si aplicaba; con un resumen histórico sólo
+     * se descarta cuando hay menos de 12 redes en total.
+     */
+    fun scoredWithPreviousFormula(detail: AssessmentDetail): Boolean = if (detail.assessment.hasObservations) {
+        (RiskScore.busiestChannel(detail.wifi.map { it.channel })?.second ?: 0) >= RiskScore.CONGESTED_CHANNEL_NETWORKS
+    } else {
+        (detail.assessment.wifiCount ?: Int.MAX_VALUE) >= RiskScore.CONGESTED_CHANNEL_NETWORKS
+    }
+
+    /**
      * Compara dos evaluaciones; la más antigua es la referencia. Wi-Fi se identifica por BSSID: un BSSID igual con
      * otro SSID es la misma red renombrada. En BLE sólo se emparejan direcciones públicas.
+     *
+     * [scoringRevisionSince] es el momento desde el que Android usa la fórmula actual (RiskScore.FORMULA_VERSION). Las
+     * evaluaciones anteriores conservan su puntuación; si sólo la referencia es anterior y la regla nueva le habría
+     * aplicado, se advierte. La versión Web no necesita esta advertencia: su fórmula no cambió.
      */
-    fun compare(left: AssessmentDetail, right: AssessmentDetail): ComparisonResult {
+    fun compare(left: AssessmentDetail, right: AssessmentDetail, scoringRevisionSince: Long? = null): ComparisonResult {
         val (older, newer) = if (left.assessment.createdAt <= right.assessment.createdAt) left to right else right to left
         val a = older.assessment
         val b = newer.assessment
@@ -228,6 +243,9 @@ object HistoryLogic {
             if (a.bleTruncated == true || b.bleTruncated == true) add("El inventario BLE alcanzó el límite de 32 dispositivos del sensor.")
             if (a.bleFailed == true || b.bleFailed == true) add("El escaneo Bluetooth falló en una de las evaluaciones: la comparación BLE no es representativa.")
             if (a.status == HistoryStatus.PARTIAL || b.status == HistoryStatus.PARTIAL) add("Una de las evaluaciones quedó incompleta.")
+            if (scoringRevisionSince != null && a.createdAt < scoringRevisionSince && b.createdAt >= scoringRevisionSince && scoredWithPreviousFormula(older)) {
+                add("La evaluación anterior se puntuó con la fórmula previa de Android, que no sumaba 5 puntos cuando un canal concentra 12 o más redes. Hasta 5 puntos de la diferencia pueden deberse a ese cambio y no al entorno.")
+            }
         }
         if (!detailed) return ComparisonResult(a, b, false, warnings, WifiComparison(), BleComparison())
 

@@ -121,6 +121,28 @@ class HistoryLogicTest {
     }
 
     @Test
+    fun comparisonAcrossTheScoringChangeWarnsOnlyWhenTheCongestionRuleApplied() {
+        val since = 1_000L
+        val congested = (1..12).map { ap("AA:AA:AA:AA:AA:%02X".format(it), channel = 6) }
+        val spread = (1..12).map { ap("AA:AA:AA:AA:AA:%02X".format(it), channel = it) }
+        val warning = "fórmula previa de Android"
+        fun warns(before: AssessmentDetail, after: AssessmentDetail) =
+            HistoryLogic.compare(after, before, since).warnings.any { warning in it }
+
+        assertTrue("antes con 12 redes en el canal 6", warns(detail("a", 500, congested), detail("b", 1_500, congested)))
+        assertFalse("antes sin canal congestionado: la fórmula nueva da lo mismo", warns(detail("a", 500, spread), detail("b", 1_500, congested)))
+        assertFalse("las dos con la fórmula nueva", warns(detail("a", 1_000, congested), detail("b", 1_500, congested)))
+        assertFalse("las dos con la fórmula anterior", warns(detail("a", 500, congested), detail("b", 900, congested)))
+        assertFalse("sin fecha de cambio no se advierte", HistoryLogic.compare(detail("a", 500, congested), detail("b", 1_500, congested)).warnings.any { warning in it })
+
+        val legacy = { wifiTotal: Int -> AssessmentDetail(HistoryLogic.legacyAssessment(AnalysisRecord(400, 20, "BAJO", wifiTotal, 0, 0, 0)), emptyList(), emptyList()) }
+        assertTrue("resumen histórico con 15 redes: no se puede descartar", warns(legacy(15), detail("b", 1_500, congested)))
+        assertFalse("resumen histórico con 3 redes: imposible 12 en un canal", warns(legacy(3), detail("b", 1_500, congested)))
+        // La puntuación guardada no se recalcula.
+        assertEquals(20, HistoryLogic.compare(legacy(15), detail("b", 1_500, congested), since).before.score)
+    }
+
+    @Test
     fun authDowngradeOnlyJudgesKnownModes() {
         assertTrue(HistoryLogic.isAuthDowngrade(3, 0))
         assertTrue(HistoryLogic.isAuthDowngrade(6, 3))

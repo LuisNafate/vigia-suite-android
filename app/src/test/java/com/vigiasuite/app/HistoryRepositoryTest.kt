@@ -176,4 +176,22 @@ class HistoryRepositoryTest {
         assertEquals(1, repository.assessments.value.size)
         assertTrue(repository.message.value!!.contains("1 resumen(es) anterior(es) migrado(s)"))
     }
+
+    @Test
+    fun scoringRevisionIsRecordedOnceAndUsedWhenComparing() = runBlocking {
+        val since = repository.scoringRevisionSince
+        assertEquals("se registra al crear el repositorio", now, since)
+        now += 60_000
+        val again = HistoryRepository(context, database, scope) { now }
+        assertEquals("un segundo inicio no la cambia", since, again.scoringRevisionSince)
+
+        // Evaluación anterior al cambio (simulada con una fecha previa) con 12 redes en un canal, y otra posterior.
+        val congested = (1..12).map { WifiNetwork("Red$it", -60, 6, 3, "AA:AA:AA:AA:AA:%02X".format(it)) }
+        val old = HistoryLogic.buildAssessment("old", since - 1_000, HistoryStatus.COMPLETE, SensorIdentity(), 0, congested, emptyList(), false, false, false)
+        database.historyDao().insertDetail(old)
+        val newId = save(score = 5, w = congested, b = emptyList())
+        val result = repository.compare("old", newId)!!
+        assertEquals(0, result.before.score)
+        assertTrue(result.warnings.any { "fórmula previa de Android" in it })
+    }
 }
