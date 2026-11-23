@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Assessment
 import androidx.compose.material.icons.filled.Cable
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Radar
 import androidx.compose.material.icons.filled.Router
@@ -50,6 +51,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -66,14 +68,19 @@ import java.util.Date
 
 class MainActivity : ComponentActivity() {
     private lateinit var serialController: UsbSerialController
+    private lateinit var history: HistoryRepository
+    private lateinit var nvd: NvdController
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        serialController = UsbSerialController(this)
+        history = HistoryRepository.create(this)
+        history.start()
+        nvd = NvdController.create(this)
+        serialController = UsbSerialController(this, history)
         serialController.register()
         setContent {
             VigiaTheme {
-                VigiaApp(serialController)
+                VigiaApp(serialController, history, nvd)
             }
         }
     }
@@ -84,12 +91,12 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-private val Night = Color(0xFFE9E9E7)
-private val Panel = Color(0xFFF9F9F7)
-private val PanelSoft = Color(0xFFE1E1DE)
-private val Cyan = Color(0xFF202020)
-private val Amber = Color(0xFF75613A)
-private val Muted = Color(0xFF6D6D6D)
+internal val Night = Color(0xFFE9E9E7)
+internal val Panel = Color(0xFFF9F9F7)
+internal val PanelSoft = Color(0xFFE1E1DE)
+internal val Cyan = Color(0xFF202020)
+internal val Amber = Color(0xFF75613A)
+internal val Muted = Color(0xFF6D6D6D)
 
 @Composable
 private fun VigiaTheme(content: @Composable () -> Unit) {
@@ -109,14 +116,17 @@ private fun VigiaTheme(content: @Composable () -> Unit) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun VigiaApp(controller: UsbSerialController) {
+private fun VigiaApp(controller: UsbSerialController, history: HistoryRepository, nvd: NvdController) {
     val state by controller.state.collectAsState()
+    val assessments by history.assessments.collectAsState()
     var selectedSection by remember { mutableIntStateOf(0) }
     val sections = listOf(
         Triple("Inicio", Icons.Default.Home, "Conectar y evaluar"),
         Triple("Resumen", Icons.Default.Assessment, "Riesgos y acciones"),
         Triple("Wi-Fi", Icons.Default.Router, "Redes detectadas"),
         Triple("Bluetooth", Icons.Default.Bluetooth, "Dispositivos cercanos"),
+        Triple("Historial", Icons.Default.History, "Evaluaciones guardadas"),
+        Triple("NVD", Icons.Default.Security, "Vulnerabilidades documentadas"),
         Triple("Sistema", Icons.Default.Settings, "Diagnóstico técnico"),
     )
 
@@ -155,9 +165,11 @@ private fun VigiaApp(controller: UsbSerialController) {
         ) {
             when (selectedSection) {
                 0 -> HomeSection(state, controller) { selectedSection = 1 }
-                1 -> { AnalysisCard(state, controller); HistoryCard(state.history, controller) }
+                1 -> { AnalysisCard(state, controller); HistoryCard(assessments, history) { selectedSection = 4 } }
                 2 -> { SectionAction("Redes Wi-Fi", "Revisa redes abiertas, protección y canales.", "Actualizar redes", state.status == ConnectionStatus.CONNECTED) { controller.send("SCAN_WIFI") }; WifiResultsCard(state.wifiNetworks) }
                 3 -> { SectionAction("Dispositivos Bluetooth", "Observa cercanía y privacidad sin conectarte a terceros.", "Actualizar dispositivos", state.status == ConnectionStatus.CONNECTED) { controller.send("SCAN_BLE") }; BleResultsCard(state.bleDevices) }
+                4 -> HistorySection(history, assessments)
+                5 -> NvdSection(nvd)
                 else -> { Text("HERRAMIENTAS DEL SENSOR", color = Muted, fontSize = 12.sp, fontWeight = FontWeight.Bold); ModuleGrid(state.status == ConnectionStatus.CONNECTED, controller); ConsoleCard(state.console) }
             }
             Spacer(Modifier.height(24.dp))
@@ -201,30 +213,31 @@ private fun SectionAction(title: String, description: String, action: String, en
     }
 }
 
-private data class MobileAnalysis(
+internal data class MobileAnalysis(
     val score: Int,
     val level: String,
     val recommendations: List<String>,
 )
 
-private fun analyze(state: SerialUiState): MobileAnalysis {
+internal fun analyze(state: SerialUiState): MobileAnalysis {
     val wifi = state.wifiNetworks
     val ble = state.bleDevices
-    val open = wifi.count { it.auth == 0 }
-    val weak = wifi.count { it.auth == 1 || it.auth == 2 }
-    val strongOpen = wifi.count { it.auth == 0 && it.rssi >= -70 }
-    val stableNearby = ble.count { it.rssi >= -65 && !it.addressType.contains("random") && it.connectable }
-    var score = minOf(40, open * 3) + minOf(25, strongOpen * 5) + minOf(25, weak * 12) + minOf(10, stableNearby * 2)
-    if (wifi.isNotEmpty() && open.toFloat() / wifi.size >= .25f) score += 10
-    score = minOf(100, score)
+    // Misma función que usa el historial: la pantalla y la evaluación guardada no pueden diferir.
+    val risk = RiskScore.compute(wifi, ble)
+    val open = risk.open
+    val weak = risk.weak
+    val stableNearby = risk.stableNearby
     val recommendations = buildList {
         if (weak > 0) add("Migra $weak red(es) con WEP/WPA a WPA2-AES o WPA3.")
         if (open > 0) add("Valida $open red(es) abiertas y separa invitados de equipos internos.")
-        if (stableNearby > 0) add("Revisa privacidad BLE en $stableNearby dispositivo(s) cercano(s) con identificador estable.")
+        if (stableNearby > 0) add("Revisa privacidad BLE en $stableNearby dispositivo(s) cercano(s) con dirección pública o aleatoria estática: puede repetirse entre sesiones. En equipos propios, activa direcciones privadas resolubles.")
+        val legacyEnterprise = wifi.count { it.auth == 16 }
+        // Aviso informativo sin puntos: el sensor no informa el cifrado, así que no se afirma TKIP ni una vulnerabilidad.
+        if (legacyEnterprise > 0) add("Revisa $legacyEnterprise red(es) WPA-Enterprise heredado: puede admitir cifrado heredado, pero Vigía no conoce su cifrado y no la puntúa como débil.")
         if (wifi.isNotEmpty()) add("Repite la medición en otro horario y compara canales, BSSID y seguridad.")
         if (isEmpty() && ble.isNotEmpty()) add("Mantén firmware actualizado y desactiva emparejamiento BLE cuando no se use.")
     }
-    return MobileAnalysis(score, if (score >= 60) "ALTO" else if (score >= 30) "MEDIO" else "BAJO", recommendations)
+    return MobileAnalysis(risk.score, risk.level, recommendations)
 }
 
 private fun reportText(state: SerialUiState): String {
@@ -234,13 +247,13 @@ private fun reportText(state: SerialUiState): String {
         appendLine("Fecha: ${DateFormat.getDateTimeInstance().format(Date())}")
         appendLine("Riesgo observado: ${result.score}/100 · ${result.level}")
         appendLine("Wi-Fi: ${state.wifiNetworks.size} redes; ${state.wifiNetworks.count { it.auth == 0 }} abiertas")
-        appendLine("Bluetooth LE: ${state.bleDevices.size} dispositivos; ${state.bleDevices.count { it.rssi >= -65 }} cercanos")
+        appendLine("Bluetooth LE: ${state.bleDevices.size} dispositivos; ${state.bleDevices.count { it.rssi != null && it.rssi >= -65 }} cercanos")
         appendLine("\nRecomendaciones:")
         result.recommendations.forEach { appendLine("- $it") }
         appendLine("\nInventario Wi-Fi:")
-        state.wifiNetworks.sortedByDescending { it.rssi }.forEach { appendLine("- ${it.ssid.ifBlank { "[oculta]" }} | ${it.rssi} dBm | canal ${it.channel} | ${authLabel(it.auth)} | ${it.bssid}") }
+        state.wifiNetworks.sortedByDescending { it.rssi }.forEach { appendLine("- ${it.ssid.ifBlank { "[oculta]" }} | ${dbmLabel(it.rssi)} | canal ${it.channel ?: "no informado"} | ${authLabel(it.auth)} | ${it.bssid}") }
         appendLine("\nInventario Bluetooth:")
-        state.bleDevices.sortedByDescending { it.rssi }.forEach { appendLine("- ${it.name.ifBlank { "[sin nombre]" }} | ${it.rssi} dBm | ${it.address} | ${bleAddressLabel(it.addressType)} | ${if (it.connectable) "conectable" else "solo anuncio"}") }
+        state.bleDevices.sortedByDescending { it.rssi }.forEach { appendLine("- ${it.name.ifBlank { "[sin nombre]" }} | ${dbmLabel(it.rssi)} | ${it.address} | ${bleAddressLabel(it.addressType, it.address)} | ${if (it.connectable) "conectable" else "solo anuncio"}") }
         appendLine("\nObservación pasiva local: un hallazgo no demuestra por sí mismo una vulnerabilidad explotable.")
     }
 }
@@ -273,23 +286,32 @@ private fun AnalysisCard(state: SerialUiState, controller: UsbSerialController) 
 }
 
 @Composable
-private fun HistoryCard(history: List<AnalysisRecord>, controller: UsbSerialController) {
+private fun HistoryCard(history: List<AssessmentEntity>, repository: HistoryRepository, openHistory: () -> Unit) {
+    var confirmClear by remember { mutableStateOf(false) }
     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column { Text("Registro local", fontWeight = FontWeight.Bold); Text("Últimas ${history.size} sesiones", color = Muted, fontSize = 11.sp) }
-                Button(enabled = history.isNotEmpty(), onClick = controller::clearHistory, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = Cyan)) { Text("Limpiar") }
+                Column { Text("Registro local", fontWeight = FontWeight.Bold); Text("${history.size} evaluaciones guardadas", color = Muted, fontSize = 11.sp) }
+                Button(enabled = history.isNotEmpty(), onClick = { confirmClear = true }, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = Cyan)) { Text("Limpiar") }
             }
-            if (history.isEmpty()) EmptyResult("Los análisis Bluetooth completados se guardarán aquí.")
+            if (history.isEmpty()) EmptyResult("Las evaluaciones completadas se guardarán aquí.")
             history.take(5).forEach { item ->
                 HorizontalDivider(color = PanelSoft)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Column { Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(item.createdAt)), fontSize = 12.sp); Text("${item.wifiTotal} Wi-Fi · ${item.bleTotal} BLE", color = Muted, fontSize = 11.sp) }
+                    Column { Text(DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(item.createdAt)), fontSize = 12.sp); Text("${item.wifiCount ?: "—"} Wi-Fi · ${item.bleCount ?: "—"} BLE", color = Muted, fontSize = 11.sp) }
                     Text("${item.score}/100 · ${item.level}", color = Cyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                 }
             }
+            if (history.isNotEmpty()) Button(onClick = openHistory, colors = ButtonDefaults.buttonColors(containerColor = PanelSoft, contentColor = Cyan)) { Text("Ver historial completo") }
         }
     }
+    if (confirmClear) ConfirmDialog(
+        title = "Eliminar todo el historial",
+        text = "Se eliminarán las ${history.size} evaluaciones guardadas en este teléfono, con todas sus observaciones. No se puede deshacer.",
+        confirm = "Eliminar todo",
+        onConfirm = { confirmClear = false; repository.launch { deleteAll() } },
+        onDismiss = { confirmClear = false },
+    )
 }
 
 @Composable
@@ -383,8 +405,8 @@ private fun WifiResultsCard(networks: List<WifiNetwork>) {
             networks.sortedByDescending { it.rssi }.take(24).forEach { network ->
                 ResultRow(
                     title = network.ssid.ifBlank { "[oculta]" },
-                    detail = "Canal ${network.channel} · ${authLabel(network.auth)}",
-                    signal = "${network.rssi} dBm",
+                    detail = "Canal ${network.channel ?: "no informado"} · ${authLabel(network.auth)}",
+                    signal = dbmLabel(network.rssi),
                 )
             }
         }
@@ -400,8 +422,8 @@ private fun BleResultsCard(devices: List<BleDevice>) {
             devices.sortedByDescending { it.rssi }.take(24).forEach { device ->
                 ResultRow(
                     title = device.name.ifBlank { "[sin nombre]" },
-                    detail = "${device.address} · ${bleAddressLabel(device.addressType)} · ${manufacturerLabel(device.manufacturerId)} · ${if (device.connectable) "conectable" else "solo anuncio"}",
-                    signal = "${device.rssi} dBm · ${proximityLabel(device.rssi)}",
+                    detail = "${device.address} · ${bleAddressLabel(device.addressType, device.address)} · ${manufacturerLabel(device.manufacturerId)} · ${if (device.connectable) "conectable" else "solo anuncio"}",
+                    signal = "${dbmLabel(device.rssi)} · ${proximityLabel(device.rssi)}",
                 )
             }
         }
@@ -409,7 +431,7 @@ private fun BleResultsCard(devices: List<BleDevice>) {
 }
 
 @Composable
-private fun ResultCard(title: String, count: Int, content: @Composable () -> Unit) {
+internal fun ResultCard(title: String, count: Int, content: @Composable () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = Panel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -423,12 +445,12 @@ private fun ResultCard(title: String, count: Int, content: @Composable () -> Uni
 }
 
 @Composable
-private fun EmptyResult(message: String) {
+internal fun EmptyResult(message: String) {
     Text(message, color = Muted, fontSize = 12.sp, modifier = Modifier.padding(vertical = 10.dp))
 }
 
 @Composable
-private fun ResultRow(title: String, detail: String, signal: String) {
+internal fun ResultRow(title: String, detail: String, signal: String) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
@@ -438,7 +460,9 @@ private fun ResultRow(title: String, detail: String, signal: String) {
     }
 }
 
-private fun authLabel(value: Int): String = when (value) {
+/** Etiqueta de wifi_auth_mode_t. null = el sensor no informó un modo válido: no se presenta como red abierta. */
+internal fun authLabel(value: Int?): String = when (value) {
+    null -> "No informada"
     0 -> "Abierta"
     1 -> "WEP"
     2 -> "WPA-PSK"
@@ -448,25 +472,32 @@ private fun authLabel(value: Int): String = when (value) {
     6 -> "WPA3-PSK"
     7 -> "WPA2/WPA3"
     8 -> "WAPI"
-    else -> "Modo $value"
+    // Modos 9-16 de wifi_auth_mode_t en el núcleo esp32 3.3.12 (firmware/build-config.json del repositorio Web).
+    9 -> "OWE"
+    10 -> "WPA3 Enterprise 192 bits"
+    11 -> "WPA3-PSK (EXT)"
+    12 -> "WPA3-PSK mixto (EXT)"
+    13 -> "DPP"
+    14 -> "WPA3 Enterprise"
+    15 -> "WPA2/WPA3 Enterprise"
+    16 -> "WPA Enterprise"
+    else -> "Modo $value no reconocido"
 }
 
-private fun proximityLabel(rssi: Int): String = when {
+internal fun dbmLabel(rssi: Int?): String = rssi?.let { "$it dBm" } ?: "RSSI no informado"
+
+internal fun proximityLabel(rssi: Int?): String = when {
+    rssi == null -> "proximidad desconocida"
     rssi >= -55 -> "muy cerca"
     rssi >= -65 -> "cerca"
     rssi >= -80 -> "media"
     else -> "lejana"
 }
 
-private fun bleAddressLabel(value: String): String = when (value) {
-    "public" -> "pública"
-    "random" -> "aleatoria"
-    "public_identity" -> "identidad pública"
-    "random_identity" -> "identidad aleatoria"
-    else -> "dirección no informada"
-}
+/** Etiqueta de privacidad a partir del tipo y de la dirección (BleAddress, fórmula versión 3). */
+internal fun bleAddressLabel(type: String?, address: String?): String = BleAddress.classify(type, address).label
 
-private fun manufacturerLabel(value: Int): String = when (value) {
+internal fun manufacturerLabel(value: Int): String = when (value) {
     6 -> "Microsoft"
     76 -> "Apple"
     117 -> "Samsung"

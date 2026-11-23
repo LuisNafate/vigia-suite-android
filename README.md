@@ -50,11 +50,13 @@ El firmware y la aplicación web para preparar el sensor están en [Vigía Suite
 ## Funciones
 
 - Conexión USB serial a 115200 baudios.
-- Inventario Wi‑Fi 2.4 GHz y Bluetooth Low Energy.
-- Puntuación contextual y recomendaciones defensivas.
-- Registro local de evaluaciones.
+- Evaluación guiada que solicita la identidad del sensor (`INFO`) y después el inventario Wi‑Fi 2.4 GHz y Bluetooth Low Energy.
+- Puntuación contextual y recomendaciones defensivas, con la misma fórmula que la versión web (incluida la regla de congestión: +5 si un canal concentra 12 o más redes). Los datos que el sensor no informa, o que llegan inválidos, se muestran como «No informada» y no cuentan como redes abiertas ni cercanas.
+- Fórmula versión 3: en Bluetooth sólo suma como identificador estable una dirección pública o una aleatoria estática (dos bits altos del primer byte en 11), siempre que el dispositivo esté cercano y sea conectable. Las direcciones privadas resolubles y no resolubles, las identidades resueltas (tipos 2 y 3) y los tipos o direcciones no determinados no suman. Cada evaluación nueva guarda su versión de fórmula; las anteriores se conservan con su puntuación original y versión «no registrada», y al compararlas se advierte de la diferencia BLE, como comprobada sólo cuando la versión y las observaciones guardadas lo permiten. Las redes WPA-Enterprise heredado (modo 16) reciben un aviso informativo sin puntos. La versión se guarda en la columna `scoreFormula` de Room.
+- Historial local en Room: cada evaluación con sus redes Wi‑Fi y dispositivos BLE, detalle, comparación entre dos evaluaciones, borrado individual o total y política de conservación. Las evaluaciones guardadas conservan su puntuación original; al compararlas con otras puntuadas con la fórmula actual, la app advierte si la regla de congestión habría cambiado el resultado. Un cambio de autenticación del mismo BSSID se califica como más débil, sin pérdida de protección o sin calificar según la familia del modo (abierta, WEP, WPA/WPA2/WPA3 personal, Enterprise, OWE, WAPI, DPP; modos 0-16 del núcleo 3.3.12): sólo se declara un debilitamiento con evidencia técnica, nunca por el número del modo.
+- Vulnerabilidades documentadas (sección **NVD**): consulta manual de la NVD CVE API 2.0 por identificador CVE, palabras clave o producto (diccionario CPE y selección explícita de la versión), con severidad y puntuación CVSS (versión y fuente), estado, fechas, aplicabilidad para el producto elegido, configuraciones, productos afectados y referencias. Una CVE sin métricas se muestra como «Sin puntuación CVSS», nunca como baja. Las CVE no se asocian con redes ni dispositivos observados y el inventario del sensor nunca se envía. Las peticiones son HTTPS, de una en una con 6 s entre ellas (límite público de NVD: 5 cada 30 s), con reintento ante HTTP 429/503 y caché Room propia (`vigia_nvd.db`, separada del historial) de 24 h que indica la fecha de consulta y funciona sin conexión. No usa clave de API: una clave en el APK se podría extraer. Muestra el aviso «This product uses the NVD API but is not endorsed or certified by the NVD.» Es la única función que usa el permiso `INTERNET`.
 - Informe para guardar o compartir desde Android.
-- Procesamiento local sin envío de resultados a Internet.
+- Procesamiento local: los resultados del sensor nunca se envían a Internet.
 
 ## Compilar sin Android Studio
 
@@ -70,7 +72,8 @@ Para instalarlo mediante depuración USB, conecta y autoriza el teléfono y ejec
 
 ## Stack
 
-- Kotlin y Jetpack Compose.
+- Kotlin y Jetpack Compose; Room para el historial y la caché de NVD.
+- NVD: `NvdModels.kt` (datos), `NvdClient.kt` (red, HttpURLConnection), `NvdCache.kt` (caché), `NvdController.kt` (estado) y `NvdScreen.kt` (pantalla).
 - usb-serial-for-android.
 - Protocolo serial VIGIA/2 con eventos JSON Lines.
 

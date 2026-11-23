@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
+import androidx.annotation.VisibleForTesting
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import com.hoho.android.usbserial.util.SerialInputOutputManager
@@ -18,7 +19,6 @@ import java.io.IOException
 import java.nio.charset.StandardCharsets
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
-import org.json.JSONArray
 import org.json.JSONObject
 
 enum class ConnectionStatus {
@@ -38,10 +38,10 @@ data class SerialUiState(
     val console: List<String> = emptyList(),
     val wifiNetworks: List<WifiNetwork> = emptyList(),
     val bleDevices: List<BleDevice> = emptyList(),
-    val history: List<AnalysisRecord> = emptyList(),
     val isAnalyzing: Boolean = false,
 )
 
+/** Resumen que guardaba la versión 0.7.0 en SharedPreferences. Se conserva para migrarlo a Room. */
 data class AnalysisRecord(
     val createdAt: Long,
     val score: Int,
@@ -52,17 +52,18 @@ data class AnalysisRecord(
     val bleNearby: Int,
 )
 
+/** rssi, channel y auth son null cuando el sensor no los envió o no son un entero válido: nunca se inventan. */
 data class WifiNetwork(
     val ssid: String,
-    val rssi: Int,
-    val channel: Int,
-    val auth: Int,
+    val rssi: Int?,
+    val channel: Int?,
+    val auth: Int?,
     val bssid: String,
 )
 
 data class BleDevice(
     val name: String,
-    val rssi: Int,
+    val rssi: Int?,
     val address: String,
     val addressType: String,
     val connectable: Boolean,
@@ -70,21 +71,43 @@ data class BleDevice(
     val services: String,
 )
 
-class UsbSerialController(context: Context) : SerialInputOutputManager.Listener {
+/** Rangos válidos de los campos numéricos de VIGIA/2. Son los mismos que aplica el historial. */
+internal object VigiaFields {
+    val RSSI = -127..20
+    val CHANNEL = 1..196
+    val AUTH = 0..255
+}
+
+/**
+ * Entero del evento sólo si el campo existe, es numérico, entero y está en el rango. optInt() devolvía 0 para un
+ * campo ausente o inválido, y 0 significa «red abierta» y «señal máxima».
+ */
+internal fun JSONObject.intIn(name: String, range: IntRange): Int? {
+    val value = opt(name) as? Number ?: return null
+    val number = value.toDouble()
+    if (number % 1.0 != 0.0) return null
+    return number.toInt().takeIf { number in range.first.toDouble()..range.last.toDouble() }
+}
+
+class UsbSerialController(context: Context, private val history: HistoryRepository) : SerialInputOutputManager.Listener {
     private val appContext = context.applicationContext
     private val usbManager = appContext.getSystemService(Context.USB_SERVICE) as UsbManager
     private val _state = MutableStateFlow(SerialUiState())
     val state: StateFlow<SerialUiState> = _state.asStateFlow()
-    private val preferences = appContext.getSharedPreferences("vigia_history", Context.MODE_PRIVATE)
 
     private var port: UsbSerialPort? = null
     private var ioManager: SerialInputOutputManager? = null
     private var pendingDevice: UsbDevice? = null
     private var receiverRegistered = false
     private var fullAnalysisPending = false
+    // El error de BLE desactiva fullAnalysisPending antes de ble_scan_finished: esto recuerda que la evaluación guiada esperaba BLE.
+    private var analysisAwaitingBle = false
     private val receiveBuffer = StringBuilder()
 
-    init { loadHistory() }
+    // Datos que el protocolo VIGIA/2 ya entrega y que el historial conserva; lo no recibido queda en null.
+    private var sensorIdentity = SensorIdentity()
+    private var wifiTruncated: Boolean? = null
+    private var bleTruncated: Boolean? = null
 
     private val permissionReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
@@ -174,6 +197,7 @@ class UsbSerialController(context: Context) : SerialInputOutputManager.Listener 
 
     private fun openDevice(device: UsbDevice) {
         disconnect(updateUi = false)
+        beginSession()
         update(status = ConnectionStatus.CONNECTING, message = "Abriendo puerto a 115200 baudios…")
 
         try {
@@ -211,6 +235,20 @@ class UsbSerialController(context: Context) : SerialInputOutputManager.Listener 
         }
     }
 
+    /** Cada conexión empieza sin identidad: nada del sensor anterior puede asociarse a las evaluaciones nuevas. */
+    private fun beginSession() {
+        sensorIdentity = SensorIdentity()
+    }
+
+    /** Sólo para pruebas: usa un puerto simulado con el mismo inicio de sesión que openDevice(). */
+    @VisibleForTesting
+    internal fun attachPortForTest(testPort: UsbSerialPort) {
+        disconnect(updateUi = false)
+        beginSession()
+        port = testPort
+        update(status = ConnectionStatus.CONNECTED)
+    }
+
     fun send(command: String) {
         val activePort = port
         if (activePort == null) {
@@ -231,7 +269,10 @@ class UsbSerialController(context: Context) : SerialInputOutputManager.Listener 
     fun runFullAnalysis() {
         if (port == null || _state.value.isAnalyzing) return
         fullAnalysisPending = true
-        _state.value = _state.value.copy(isAnalyzing = true, wifiNetworks = emptyList(), bleDevices = emptyList(), message = "Iniciando evaluación guiada…")
+        _state.value = _state.value.copy(isAnalyzing = true, wifiNetworks = emptyList(), bleDevices = emptyList(), message = "Validando identidad del sensor…")
+        // Igual que la versión Web: la identidad se pide en cada evaluación. El firmware procesa los comandos en orden,
+        // así que el evento identity llega antes de wifi_scan_started y queda asociado a esta evaluación.
+        send("INFO")
         send("SCAN_WIFI")
     }
 
@@ -246,6 +287,7 @@ class UsbSerialController(context: Context) : SerialInputOutputManager.Listener 
         }
         port = null
         fullAnalysisPending = false
+        analysisAwaitingBle = false
         if (updateUi) {
             _state.value = _state.value.copy(status = ConnectionStatus.DISCONNECTED, message = "Sensor desconectado.", isAnalyzing = false)
             log("Conexión cerrada")
@@ -282,41 +324,57 @@ class UsbSerialController(context: Context) : SerialInputOutputManager.Listener 
         log("< $line")
         try {
             val event = JSONObject(line)
+            if (event.has("protocol")) sensorIdentity = sensorIdentity.copy(protocol = event.optInt("protocol").takeIf { it > 0 })
             when (event.optString("type")) {
-                "ready" -> update(message = "Firmware ${event.optString("firmware")} listo.")
+                "ready" -> {
+                    sensorIdentity = sensorIdentity.copy(firmware = event.optString("firmware").ifBlank { null })
+                    update(message = "Firmware ${event.optString("firmware")} listo.")
+                }
                 "pong" -> update(message = "Enlace validado: el ESP32 respondió correctamente.")
-                "identity" -> update(
-                    message = "${event.optString("board")} · ${event.optString("chip")} · ${event.optString("mac")}",
-                )
+                "identity" -> {
+                    sensorIdentity = sensorIdentity.copy(
+                        board = event.optString("board").ifBlank { null },
+                        chip = event.optString("chip").ifBlank { null },
+                        mac = event.optString("mac").ifBlank { null },
+                    )
+                    update(message = "${event.optString("board")} · ${event.optString("chip")} · ${event.optString("mac")}")
+                }
                 "status" -> update(
                     message = "Memoria libre: ${event.optLong("heap_free")} bytes · Activo: ${event.optLong("uptime_ms") / 1000} s",
                 )
-                "wifi_scan_started" -> _state.value = _state.value.copy(
-                    wifiNetworks = emptyList(),
-                    message = "Analizando redes Wi-Fi…",
-                )
+                "wifi_scan_started" -> {
+                    wifiTruncated = null
+                    _state.value = _state.value.copy(
+                        wifiNetworks = emptyList(),
+                        message = "Analizando redes Wi-Fi…",
+                    )
+                }
                 "wifi_ap" -> {
                     val network = WifiNetwork(
                         ssid = event.optString("ssid"),
-                        rssi = event.optInt("rssi"),
-                        channel = event.optInt("channel"),
-                        auth = event.optInt("auth"),
+                        rssi = event.intIn("rssi", VigiaFields.RSSI),
+                        channel = event.intIn("channel", VigiaFields.CHANNEL),
+                        auth = event.intIn("auth", VigiaFields.AUTH),
                         bssid = event.optString("bssid"),
                     )
                     _state.value = _state.value.copy(wifiNetworks = _state.value.wifiNetworks + network)
                 }
                 "wifi_scan_finished" -> {
+                    wifiTruncated = if (event.has("truncated")) event.optBoolean("truncated") else null
                     update(message = "Wi-Fi finalizado: ${event.optInt("count")} redes detectadas.")
-                    if (fullAnalysisPending) send("SCAN_BLE")
+                    if (fullAnalysisPending) { analysisAwaitingBle = true; send("SCAN_BLE") }
                 }
-                "ble_scan_started" -> _state.value = _state.value.copy(
-                    bleDevices = emptyList(),
-                    message = "Analizando Bluetooth LE durante 5 segundos…",
-                )
+                "ble_scan_started" -> {
+                    bleTruncated = null
+                    _state.value = _state.value.copy(
+                        bleDevices = emptyList(),
+                        message = "Analizando Bluetooth LE durante 5 segundos…",
+                    )
+                }
                 "ble_device" -> {
                     val device = BleDevice(
                         name = event.optString("name"),
-                        rssi = event.optInt("rssi"),
+                        rssi = event.intIn("rssi", VigiaFields.RSSI),
                         address = event.optString("address"),
                         addressType = event.optString("address_type", "unknown"),
                         connectable = event.optBoolean("connectable"),
@@ -330,13 +388,19 @@ class UsbSerialController(context: Context) : SerialInputOutputManager.Listener 
                 }
                 "ble_scan_finished" -> {
                     val failed = event.optBoolean("failed")
+                    val partOfAnalysis = analysisAwaitingBle
+                    bleTruncated = if (event.has("truncated")) event.optBoolean("truncated") else null
                     _state.value = _state.value.copy(
                         message = if (failed) "El inventario Bluetooth no pudo completarse."
                         else "Evaluación terminada: ${event.optInt("count")} dispositivos Bluetooth detectados.",
                         isAnalyzing = false,
                     )
                     fullAnalysisPending = false
-                    if (!failed) recordAnalysis()
+                    analysisAwaitingBle = false
+                    // Igual que antes, un escaneo BLE correcto registra la evaluación. Si falló dentro de la
+                    // evaluación guiada, ahora se conserva como incompleta en lugar de descartarse.
+                    if (!failed) recordAnalysis(HistoryStatus.COMPLETE, bleFailed = false)
+                    else if (partOfAnalysis) recordAnalysis(HistoryStatus.PARTIAL, bleFailed = true)
                 }
                 "ble_status" -> update(
                     message = if (event.optBoolean("ready")) "Bluetooth LE disponible y listo."
@@ -373,52 +437,16 @@ class UsbSerialController(context: Context) : SerialInputOutputManager.Listener 
         )
     }
 
-    fun clearHistory() {
-        preferences.edit().remove(HISTORY_KEY).apply()
-        _state.value = _state.value.copy(history = emptyList())
-    }
-
-    private fun recordAnalysis() {
+    private fun recordAnalysis(status: String, bleFailed: Boolean) {
         val wifi = _state.value.wifiNetworks
         val ble = _state.value.bleDevices
         if (wifi.isEmpty() && ble.isEmpty()) return
-        val open = wifi.count { it.auth == 0 }
-        val weak = wifi.count { it.auth == 1 || it.auth == 2 }
-        val strongOpen = wifi.count { it.auth == 0 && it.rssi >= -70 }
-        val stableNearby = ble.count { it.rssi >= -65 && !it.addressType.contains("random") && it.connectable }
-        var score = minOf(40, open * 3) + minOf(25, strongOpen * 5) + minOf(25, weak * 12) + minOf(10, stableNearby * 2)
-        if (wifi.isNotEmpty() && open.toFloat() / wifi.size >= .25f) score += 10
-        score = minOf(100, score)
-        val record = AnalysisRecord(
-            createdAt = System.currentTimeMillis(), score = score,
-            level = if (score >= 60) "ALTO" else if (score >= 30) "MEDIO" else "BAJO",
-            wifiTotal = wifi.size, wifiOpen = open, bleTotal = ble.size, bleNearby = ble.count { it.rssi >= -65 },
-        )
-        val updated = (listOf(record) + _state.value.history).take(20)
-        _state.value = _state.value.copy(history = updated)
-        saveHistory(updated)
-    }
-
-    private fun saveHistory(items: List<AnalysisRecord>) {
-        val array = JSONArray()
-        items.forEach { item -> array.put(JSONObject().apply {
-            put("createdAt", item.createdAt); put("score", item.score); put("level", item.level)
-            put("wifiTotal", item.wifiTotal); put("wifiOpen", item.wifiOpen)
-            put("bleTotal", item.bleTotal); put("bleNearby", item.bleNearby)
-        }) }
-        preferences.edit().putString(HISTORY_KEY, array.toString()).apply()
-    }
-
-    private fun loadHistory() {
-        val items = mutableListOf<AnalysisRecord>()
-        try {
-            val array = JSONArray(preferences.getString(HISTORY_KEY, "[]"))
-            for (index in 0 until array.length()) array.getJSONObject(index).let { item -> items += AnalysisRecord(
-                item.optLong("createdAt"), item.optInt("score"), item.optString("level"),
-                item.optInt("wifiTotal"), item.optInt("wifiOpen"), item.optInt("bleTotal"), item.optInt("bleNearby"),
-            ) }
-        } catch (_: Exception) { preferences.edit().remove(HISTORY_KEY).apply() }
-        _state.value = _state.value.copy(history = items)
+        // La misma función que muestra la pantalla (MainActivity.analyze).
+        val score = RiskScore.compute(wifi, ble).score
+        val sensor = sensorIdentity
+        val truncatedWifi = wifiTruncated
+        val truncatedBle = bleTruncated
+        history.launch { save(status, sensor, score, wifi, ble, truncatedWifi, truncatedBle, bleFailed) }
     }
 
     @Suppress("DEPRECATION")
@@ -433,7 +461,6 @@ class UsbSerialController(context: Context) : SerialInputOutputManager.Listener 
         const val BAUD_RATE = 115200
         const val WRITE_TIMEOUT_MS = 1_000
         const val MAX_LOG_LINES = 120
-        const val HISTORY_KEY = "analysis_records_v1"
     }
 }
 

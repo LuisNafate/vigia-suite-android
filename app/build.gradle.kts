@@ -4,6 +4,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("com.google.devtools.ksp")
 }
 
 android {
@@ -44,6 +45,16 @@ android {
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
+
+    // Robolectric necesita los recursos y el manifiesto para las pruebas de Room y SharedPreferences.
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+    }
+}
+
+// El esquema exportado de Room documenta cada versión de la base de datos y permite escribir migraciones futuras.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }
 
 kotlin {
@@ -68,10 +79,19 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("com.github.mik3y:usb-serial-for-android:3.11.0")
 
+    // Historial local estructurado (Room sobre SQLite).
+    val roomVersion = "2.8.4"
+    implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
+    ksp("androidx.room:room-compiler:$roomVersion")
+
     debugImplementation("androidx.compose.ui:ui-tooling")
     debugImplementation("androidx.compose.ui:ui-test-manifest")
 
     testImplementation("junit:junit:4.13.2")
+    // Sólo pruebas: Room en memoria y SharedPreferences reales en la JVM, sin dispositivo.
+    testImplementation("org.robolectric:robolectric:4.16")
+    testImplementation("androidx.test:core:1.7.0")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")
     androidTestImplementation("androidx.test.espresso:espresso-core:3.6.1")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
