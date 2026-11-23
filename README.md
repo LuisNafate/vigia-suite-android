@@ -52,7 +52,7 @@ El firmware y la aplicación web para preparar el sensor están en [Vigía Suite
 - Conexión USB serial a 115200 baudios.
 - Inventario Wi‑Fi 2.4 GHz y Bluetooth Low Energy.
 - Puntuación contextual y recomendaciones defensivas.
-- Registro local de evaluaciones.
+- Historial local en Room: cada evaluación con sus redes Wi‑Fi y dispositivos BLE, detalle, comparación entre dos evaluaciones, borrado individual o total y política de conservación.
 - Informe para guardar o compartir desde Android.
 - Procesamiento local sin envío de resultados a Internet.
 
