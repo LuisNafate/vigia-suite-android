@@ -441,14 +441,8 @@ class UsbSerialController(context: Context, private val history: HistoryReposito
         val wifi = _state.value.wifiNetworks
         val ble = _state.value.bleDevices
         if (wifi.isEmpty() && ble.isEmpty()) return
-        // Fórmula existente sin cambios (ver nota de discrepancia con Web en el informe de esta etapa).
-        val open = wifi.count { it.auth == 0 }
-        val weak = wifi.count { it.auth == 1 || it.auth == 2 }
-        val strongOpen = wifi.count { it.auth == 0 && it.rssi != null && it.rssi >= -70 }
-        val stableNearby = ble.count { it.rssi != null && it.rssi >= -65 && !it.addressType.contains("random") && it.connectable }
-        var score = minOf(40, open * 3) + minOf(25, strongOpen * 5) + minOf(25, weak * 12) + minOf(10, stableNearby * 2)
-        if (wifi.isNotEmpty() && open.toFloat() / wifi.size >= .25f) score += 10
-        score = minOf(100, score)
+        // La misma función que muestra la pantalla (MainActivity.analyze).
+        val score = RiskScore.compute(wifi, ble).score
         val sensor = sensorIdentity
         val truncatedWifi = wifiTruncated
         val truncatedBle = bleTruncated

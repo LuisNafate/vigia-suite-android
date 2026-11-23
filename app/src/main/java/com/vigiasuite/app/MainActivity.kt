@@ -209,22 +209,20 @@ private fun SectionAction(title: String, description: String, action: String, en
     }
 }
 
-private data class MobileAnalysis(
+internal data class MobileAnalysis(
     val score: Int,
     val level: String,
     val recommendations: List<String>,
 )
 
-private fun analyze(state: SerialUiState): MobileAnalysis {
+internal fun analyze(state: SerialUiState): MobileAnalysis {
     val wifi = state.wifiNetworks
     val ble = state.bleDevices
-    val open = wifi.count { it.auth == 0 }
-    val weak = wifi.count { it.auth == 1 || it.auth == 2 }
-    val strongOpen = wifi.count { it.auth == 0 && it.rssi != null && it.rssi >= -70 }
-    val stableNearby = ble.count { it.rssi != null && it.rssi >= -65 && !it.addressType.contains("random") && it.connectable }
-    var score = minOf(40, open * 3) + minOf(25, strongOpen * 5) + minOf(25, weak * 12) + minOf(10, stableNearby * 2)
-    if (wifi.isNotEmpty() && open.toFloat() / wifi.size >= .25f) score += 10
-    score = minOf(100, score)
+    // Misma función que usa el historial: la pantalla y la evaluación guardada no pueden diferir.
+    val risk = RiskScore.compute(wifi, ble)
+    val open = risk.open
+    val weak = risk.weak
+    val stableNearby = risk.stableNearby
     val recommendations = buildList {
         if (weak > 0) add("Migra $weak red(es) con WEP/WPA a WPA2-AES o WPA3.")
         if (open > 0) add("Valida $open red(es) abiertas y separa invitados de equipos internos.")
@@ -232,7 +230,7 @@ private fun analyze(state: SerialUiState): MobileAnalysis {
         if (wifi.isNotEmpty()) add("Repite la medición en otro horario y compara canales, BSSID y seguridad.")
         if (isEmpty() && ble.isNotEmpty()) add("Mantén firmware actualizado y desactiva emparejamiento BLE cuando no se use.")
     }
-    return MobileAnalysis(score, if (score >= 60) "ALTO" else if (score >= 30) "MEDIO" else "BAJO", recommendations)
+    return MobileAnalysis(risk.score, risk.level, recommendations)
 }
 
 private fun reportText(state: SerialUiState): String {
