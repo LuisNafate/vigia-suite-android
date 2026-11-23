@@ -36,6 +36,8 @@ class SerialHistoryIntegrationTest {
         database = Room.inMemoryDatabaseBuilder(context, HistoryDatabase::class.java).allowMainThreadQueries().build()
         scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         controller = UsbSerialController(context, HistoryRepository(context, database, scope))
+        // La primera consulta carga SQLite nativo en Robolectric y puede tardar varios segundos: se hace antes de medir.
+        runBlocking { database.historyDao().assessments() }
     }
 
     @After

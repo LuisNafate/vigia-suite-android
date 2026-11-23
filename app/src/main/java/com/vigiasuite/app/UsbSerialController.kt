@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.hardware.usb.UsbDevice
 import android.hardware.usb.UsbManager
 import android.os.Build
+import androidx.annotation.VisibleForTesting
 import com.hoho.android.usbserial.driver.UsbSerialPort
 import com.hoho.android.usbserial.driver.UsbSerialProber
 import com.hoho.android.usbserial.util.SerialInputOutputManager
@@ -196,7 +197,7 @@ class UsbSerialController(context: Context, private val history: HistoryReposito
 
     private fun openDevice(device: UsbDevice) {
         disconnect(updateUi = false)
-        sensorIdentity = SensorIdentity()
+        beginSession()
         update(status = ConnectionStatus.CONNECTING, message = "Abriendo puerto a 115200 baudios…")
 
         try {
@@ -234,6 +235,20 @@ class UsbSerialController(context: Context, private val history: HistoryReposito
         }
     }
 
+    /** Cada conexión empieza sin identidad: nada del sensor anterior puede asociarse a las evaluaciones nuevas. */
+    private fun beginSession() {
+        sensorIdentity = SensorIdentity()
+    }
+
+    /** Sólo para pruebas: usa un puerto simulado con el mismo inicio de sesión que openDevice(). */
+    @VisibleForTesting
+    internal fun attachPortForTest(testPort: UsbSerialPort) {
+        disconnect(updateUi = false)
+        beginSession()
+        port = testPort
+        update(status = ConnectionStatus.CONNECTED)
+    }
+
     fun send(command: String) {
         val activePort = port
         if (activePort == null) {
@@ -254,7 +269,10 @@ class UsbSerialController(context: Context, private val history: HistoryReposito
     fun runFullAnalysis() {
         if (port == null || _state.value.isAnalyzing) return
         fullAnalysisPending = true
-        _state.value = _state.value.copy(isAnalyzing = true, wifiNetworks = emptyList(), bleDevices = emptyList(), message = "Iniciando evaluación guiada…")
+        _state.value = _state.value.copy(isAnalyzing = true, wifiNetworks = emptyList(), bleDevices = emptyList(), message = "Validando identidad del sensor…")
+        // Igual que la versión Web: la identidad se pide en cada evaluación. El firmware procesa los comandos en orden,
+        // así que el evento identity llega antes de wifi_scan_started y queda asociado a esta evaluación.
+        send("INFO")
         send("SCAN_WIFI")
     }
 
