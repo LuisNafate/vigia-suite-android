@@ -32,6 +32,7 @@ Aplicación Android de Vigía Suite para conectar un NodeMCU ESP‑32S mediante 
 | Aplicación web | [Abrir Vigía Suite en Vercel](https://vigia-suite-web-pc-lab.vercel.app) |
 | Repositorio web | [Vigía Suite Web](https://github.com/LuisNafate/vigia-suite-web) |
 | Historial Android | [Commits de main](https://github.com/LuisNafate/vigia-suite-android/commits/main) |
+| Controles de seguridad | [Matriz de aplicabilidad y evidencias](docs/SECURITY-CONTROLS.md) |
 
 ## Descargar APK
 
