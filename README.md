@@ -13,6 +13,7 @@
     <img alt="Jetpack Compose" src="https://img.shields.io/badge/JETPACK-COMPOSE-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white">
     <img alt="USB OTG" src="https://img.shields.io/badge/USB-OTG-1679A7?style=flat-square&logo=usb&logoColor=white">
     <img alt="Protocolo VIGIA 2" src="https://img.shields.io/badge/PROTOCOLO-VIGIA%2F2-4B5563?style=flat-square">
+    <a href="LICENSE"><img alt="Licencia MIT" src="https://img.shields.io/badge/LICENCIA-MIT-F4C430?style=flat-square"></a>
     <img alt="Último commit" src="https://img.shields.io/github/last-commit/LuisNafate/vigia-suite-android?style=flat-square&logo=git&logoColor=white">
   </p>
 </div>
@@ -80,3 +81,7 @@ Para instalarlo mediante depuración USB, conecta y autoriza el teléfono y ejec
 ## Uso responsable
 
 Utiliza las funciones de descubrimiento exclusivamente en redes, espacios y dispositivos propios o con autorización explícita.
+
+## Licencia
+
+Este proyecto se distribuye bajo la [Licencia MIT](LICENSE). Copyright © 2026 Luis Nafate.
